@@ -10,8 +10,8 @@ ships inside the same binary and always calls its own origin.
    through your approved registry, and deploy by digest. No `target-cpu=native`
    or x86-specific flags are embedded in the portable build.
 2. **Native binary:** build with `cargo build --locked --release --bin
-   genesis-mesh-gateway`, then run `python tools/package.py --binary
-   target/release/genesis-mesh-gateway --platform linux-amd64`. Windows uses the
+   genesis-mesh-gateway --bin genesis-mesh-operator`, then run `pwsh tools/package.ps1 -Binary
+   target/release/genesis-mesh-gateway -Platform linux-amd64`. Windows uses the
    `.exe` binary and platform `windows-amd64`. The packager checks the version,
    bundles an explicit allowlist, and emits a SHA-256 sidecar plus binary manifest.
 3. **CI artifacts:** manually dispatch `distribution.yml` to build Windows/Linux

@@ -767,6 +767,6 @@ async fn public_mesh_marks_failed_upstreams_and_coalesces_refreshes() {
     assert!(!body.to_string().contains("anchors"));
     let (_, again) = call(&app, "/v1/mesh", None, None).await;
     assert_eq!(body, again);
-    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 4);
     task.abort();
 }

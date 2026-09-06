@@ -48,6 +48,34 @@ fn current(record: &Value) -> bool {
             .is_some_and(|t| t > now)
 }
 
+fn verified_feed(
+    name: &str,
+    feed: &Value,
+    keys: &std::collections::HashMap<String, crate::crypto::CachedPublicKey>,
+) -> Option<Value> {
+    let issuer = feed["issued_by"].as_str()?;
+    let key = keys.get(issuer)?;
+    let issued = DateTime::parse_from_rfc3339(feed["issued_at"].as_str()?).ok()?;
+    let now = Utc::now();
+    if feed["issuer_sovereign_id"] != name
+        || issued > now + chrono::Duration::minutes(5)
+        || issued < now - chrono::Duration::hours(24)
+    {
+        return None;
+    }
+    let sequence = feed["sequence"].as_u64()?;
+    let payload = crate::canonical::to_canonical_json_excluding(feed, &["signatures"]).ok()?;
+    let valid = feed["signatures"].as_array()?.iter().any(|s| {
+        s["key_id"] == issuer
+            && s["sig"]
+                .as_str()
+                .is_some_and(|sig| key.verify(payload.as_bytes(), sig).unwrap_or(false))
+    });
+    valid.then(
+        || json!({"sequence":sequence,"issued_at":feed["issued_at"],"signature_verified":true}),
+    )
+}
+
 fn project(
     name: &str,
     visible: &BTreeSet<String>,
@@ -126,13 +154,18 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
             let ready = network.ready(Utc::now());
             let sequence = network.crl.sequence;
             let client = state.authority_http.clone();
+            let keys = network.verifying_keys.clone();
             let visible = visible.clone();
             tasks.spawn(async move {
-                let (treaties, attestations) = tokio::join!(read(&client, &origin, "/recognition-treaties?status=active"), read(&client, &origin, "/attestations?status=active"));
+                let (treaties, attestations, dashboard, feed) = tokio::join!(read(&client, &origin, "/recognition-treaties?status=active"), read(&client, &origin, "/attestations?status=active"), read(&client, &origin, "/dashboard.json"), read(&client, &origin, "/sovereign-revocation-feed"));
                 let available = treaties.is_ok() && attestations.is_ok();
                 // Partial failures never retain old links or present stale counts as live.
                 let (edges, members) = project(&name, &visible, &treaties.unwrap_or(Value::Null), &attestations.unwrap_or(Value::Null));
-                (json!({"id":name,"available":available,"trust_ready":ready,"crl_sequence":sequence}), edges, members)
+                let source_feed = verified_feed(&name, &feed.unwrap_or(Value::Null), &keys);
+                let dashboard_available = dashboard.is_ok();
+                let dashboard = dashboard.unwrap_or(Value::Null);
+                let imports: Vec<Value> = dashboard["revocation_feeds"].as_array().into_iter().flatten().filter(|f| f["issuer_sovereign_id"].as_str().is_some_and(|s| visible.contains(s))).map(|f|json!({"issuer":f["issuer_sovereign_id"],"sequence":f["sequence"],"imported_at":f["imported_at"]})).collect();
+                (json!({"id":name,"available":available,"trust_ready":ready,"crl_sequence":sequence,"source_feed":source_feed,"imports_available":dashboard_available,"imports":imports}), edges, members)
             });
         }
     }
@@ -153,7 +186,24 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
     networks.sort_by_key(|n| n["id"].as_str().unwrap_or_default().to_owned());
     edges.sort_by_key(|n| n["id"].as_str().unwrap_or_default().to_owned());
     members.sort_by_key(|n| n["subject"].as_str().unwrap_or_default().to_owned());
-    let data = json!({"observed_at":Utc::now(),"refresh_seconds":20,"networks":networks,"links":edges,"members":members,"network_limit":16,"member_limit_per_network":64,"link_limit_per_network":256});
+    let pairs: BTreeSet<_> = edges
+        .iter()
+        .filter_map(|e| Some((e["from"].as_str()?, e["to"].as_str()?)))
+        .collect();
+    let synchronization: Vec<_> = pairs.into_iter().map(|(consumer, publisher)| {
+        let source = networks.iter().find(|n| n["id"] == publisher);
+        let target = networks.iter().find(|n| n["id"] == consumer);
+        let published = source.and_then(|s|s["source_feed"]["sequence"].as_u64());
+        let imported = target.and_then(|t|t["imports"].as_array()).and_then(|items|items.iter().find(|i|i["issuer"]==publisher));
+        let sequence = imported.and_then(|i|i["sequence"].as_u64());
+        let status = if !target.is_some_and(|t| t["imports_available"] == true) { "consumer_unavailable" }
+            else if published.is_none() { "source_unverified" }
+            else if sequence.is_none() { "not_imported" }
+            else if sequence == published { "current" }
+            else if sequence < published { "behind" } else { "source_rollback" };
+        json!({"consumer":consumer,"publisher":publisher,"status":status,"published_sequence":published,"imported_sequence":sequence,"last_imported_at":imported.map(|i|&i["imported_at"])})
+    }).collect();
+    let data = json!({"observed_at":Utc::now(),"refresh_seconds":20,"networks":networks,"links":edges,"members":members,"synchronization":synchronization,"network_limit":16,"member_limit_per_network":64,"link_limit_per_network":256});
     *cache = Some((Instant::now(), data.clone()));
     Json(data)
 }
@@ -161,6 +211,33 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn feed_health_requires_fresh_pinned_issuer_signature() {
+        let key = crate::KeyPair::generate().unwrap();
+        let keys = [(
+            "na".to_string(),
+            crate::crypto::CachedPublicKey::parse(&key.public_key_b64()).unwrap(),
+        )]
+        .into();
+        let mut feed = json!({"issuer_sovereign_id":"a","issued_by":"na","sequence":3,"issued_at":Utc::now(),"signatures":[]});
+        let sign = |f: &mut Value| {
+            let body = crate::canonical::to_canonical_json_excluding(f, &["signatures"]).unwrap();
+            f["signatures"] = json!([{"key_id":"na","sig":key.sign_b64(body.as_bytes())}]);
+        };
+        sign(&mut feed);
+        assert_eq!(verified_feed("a", &feed, &keys).unwrap()["sequence"], 3);
+        assert!(verified_feed("other", &feed, &keys).is_none());
+        feed["sequence"] = json!(4);
+        assert!(verified_feed("a", &feed, &keys).is_none());
+        for issued in [
+            Utc::now() - chrono::Duration::hours(25),
+            Utc::now() + chrono::Duration::minutes(6),
+        ] {
+            feed["issued_at"] = json!(issued);
+            sign(&mut feed);
+            assert!(verified_feed("a", &feed, &keys).is_none());
+        }
+    }
     #[test]
     fn projection_excludes_private_revoked_expired_and_foreign_records() {
         let valid = json!({"status":"active","valid_from":Utc::now()-chrono::Duration::hours(1),"expires_at":Utc::now()+chrono::Duration::hours(1),"issuer_sovereign_id":"a"});

@@ -1,6 +1,6 @@
 [package]
 name = "genesis-mesh-gateway"
-version = "0.56.2"
+version = "0.56.3"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
@@ -25,6 +25,10 @@ path = "src/main.rs"
 [[bin]]
 name = "genesis-mesh"
 path = "src/bin/genesis_mesh.rs"
+
+[[bin]]
+name = "genesis-mesh-operator"
+path = "src/bin/genesis_mesh_operator.rs"
 
 [dependencies]
 base64 = "0.22"

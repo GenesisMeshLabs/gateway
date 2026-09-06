@@ -14,11 +14,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
       - run: cargo test --locked
-      - run: cargo build --locked --release --bin genesis-mesh-gateway
-      - run: python tools/package.py --binary target/release/${{ matrix.binary }} --platform ${{ matrix.platform }} --output dist
+      - run: cargo build --locked --release --bin genesis-mesh-gateway --bin genesis-mesh-operator
+      - shell: pwsh
+        run: ./tools/package.ps1 -Binary target/release/${{ matrix.binary }} -Platform ${{ matrix.platform }} -Output dist
       - uses: actions/upload-artifact@v4
         with:
           name: gateway-${{ matrix.platform }}

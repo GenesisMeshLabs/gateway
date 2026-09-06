@@ -15,7 +15,7 @@
 //!
 //! The Python reference implementation is the wire authority. Anything in this
 //! crate that touches the wire is verified against vectors generated from it —
-//! see `tests/interop.rs` and `tools/gen_vectors.py`. The two subtleties worth
+//! see `tests/interop.rs` and `tests/reference/gen_vectors.py`. The two subtleties worth
 //! knowing, both of which would otherwise silently break signatures:
 //!
 //! * Canonical JSON escapes non-ASCII as `\uXXXX`; `serde_json` does not.
@@ -58,6 +58,7 @@
 pub mod canonical;
 pub mod crypto;
 pub mod error;
+pub mod federation;
 pub mod gateway;
 pub mod models;
 pub mod time;

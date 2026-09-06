@@ -23,14 +23,14 @@ authorities and stale browser snapshots are shown explicitly.
 
 ## Demonstration records
 
-`tools/bootstrap_demo_mesh.py` creates real operator-authorized `role:client`
+`../sandbox/tests/gateway-mesh/bootstrap_demo_mesh.py` creates real operator-authorized `role:client`
 treaties and three signed demo memberships per supplied network. It imports
 signed revocation feeds and verifies every demo membership across each treaty.
 It reuses compatible active records and does not replace recognition policy.
 Records expire after 30 days; rerun to reuse or renew expiring demo records.
 
 ```powershell
-python tools/bootstrap_demo_mesh.py --token-file /private/service.token `
+python ../sandbox/tests/gateway-mesh/bootstrap_demo_mesh.py --token-file /private/service.token `
   --authority network-a=/private/network-a/operator.key `
   --authority network-b=/private/network-b/operator.key
 ```
@@ -39,7 +39,7 @@ Requires Python with `cryptography`. Operator seeds remain local. Demo subjects
 are illustrative participants, not deployed public-sector applications.
 
 For reference authorities that do not renew inactive CRLs automatically,
-`tools/refresh_authority_crl.py` can run hourly in the authority's Python
+`../genesismesh/scripts/authority_ops/refresh_authority_crl.py` can run hourly in the authority's Python
 environment. It retains existing revocations, advances sequence numbers and
 signs with the authority's existing key under a SQLite write transaction.
 Never extend a CRL's timestamps without re-signing it on its authority host.

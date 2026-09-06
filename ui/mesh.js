@@ -13,6 +13,9 @@ function inspect(record,type){
   document.querySelectorAll('.mesh-node').forEach(n=>n.classList.toggle('selected',n.dataset.record===record.id));
 }
 function render(data){
+  const health=document.getElementById('federation-health');health.replaceChildren();
+  for(const row of data.synchronization||[]){const card=el('article');card.append(el('h3',row.consumer+' accepts '+row.publisher),el('span',row.status.replaceAll('_',' '),'pill'),el('p','Source sequence: '+(row.published_sequence??'unverified')+' / imported: '+(row.imported_sequence??'unavailable')),el('p',row.last_imported_at?'Last import: '+new Date(row.last_imported_at).toLocaleString():'No import timestamp available','field-note'));health.append(card);}
+  if(!data.synchronization?.length)health.append(el('p','No synchronization relationships available in this snapshot.'));
   snapshot=data;const root=document.getElementById('mesh-view');root.replaceChildren();
   const stats=document.getElementById('mesh-stats');stats.replaceChildren();
   const pairs=new Set(data.links.map(l=>[l.from,l.to].sort().join('|')));

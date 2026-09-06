@@ -56,6 +56,7 @@ async function request(path,options={}){
   const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{data=raw;}return {response,data};
 }
 function resetSession(){
+  for(const id of ['federation-local','federation-peer'])$(id).replaceChildren(new Option('Connect to choose a network',''));
   sessionGeneration++;session=null;connectedToken='';lastResult=undefined;
   $('network-select').replaceChildren(new Option('Connect to load networks',''));
   $('network-data').replaceChildren(node('p','Enter a service token and select Load networks.'));
@@ -71,6 +72,8 @@ async function connect(){
   if(!response.ok)throw new Error((typeof data.error==='string'?data.error:data.error?.message)||'Connection rejected ('+response.status+')');
   session=data;connectedToken=token;
   $('network-select').replaceChildren(...data.networks.map(n=>new Option(n.name+(n.services_configured?'':' (services unavailable)'),n.name)));
+  for(const id of ['federation-local','federation-peer'])$(id).replaceChildren(...data.networks.filter(n=>n.services_configured).map(n=>new Option(n.name,n.name)));
+  if($('federation-peer').options.length>1)$('federation-peer').selectedIndex=1;
   renderNetworks(data);$('path').textContent=destination();renderEndpoints();
   $('request-state').textContent='Connected as '+data.client_id;
   $('network-state').textContent='Loaded '+data.networks.length+' networks. Connected as '+data.client_id+'.';
@@ -152,3 +155,29 @@ async function refresh(){try{const [health,ready,api]=await Promise.all(['/healt
 choose(core[0]);refresh();
 request('/v1/services').then(({response,data})=>{if(!response.ok)throw new Error('Service catalog unavailable');endpoints=[...core,...data.operations.map(e=>({...e,authority:true})).sort((a,b)=>a.group.localeCompare(b.group))];for(const g of [...new Set(endpoints.map(e=>e.group))])$('service-group').append(new Option(label(g),g));renderEndpoints();}).catch(e=>$('catalog-summary').textContent=e.message);
 setInterval(()=>{if(!document.hidden)refresh();},30000);
+
+$('prepare-federation').addEventListener('click',()=>{
+  try {
+    if(busy)throw new Error('Wait for the current request to finish.');
+    if(!session || connectedToken!==$('token').value.trim())throw new Error('Connect with your service token first.');
+    if(!session.authority_admin)throw new Error('This service identity does not have operator access.');
+    const local=$('federation-local').value, peer=$('federation-peer').value;
+    if(!local || !peer || local===peer)throw new Error('Choose two different authorities.');
+    const roles=$('federation-roles').value.split(',').map(r=>r.trim()).filter(Boolean);
+    const hours=Number($('federation-hours').value);
+    if(!roles.length || roles.some(r=>!/^role:(anchor|bridge|client|operator|service:[a-zA-Z0-9._-]+)$/.test(r)))throw new Error('Enter explicit Genesis Mesh roles.');
+    if(!Number.isInteger(hours)||hours<1||hours>720)throw new Error('Choose a validity of 1 to 720 hours.');
+    const network=session.networks.find(n=>n.name===peer), keys=Object.values(network?.anchors||{});
+    if(!keys.length)throw new Error('The peer has no pinned authority key.');
+    const operation=endpoints.find(e=>e.upstream_path==='/admin/recognition-treaties'&&e.method==='POST');
+    if(!operation)throw new Error('Recognition service is not loaded.');
+    if(!session.service_groups.includes(operation.group))throw new Error('This token cannot access recognition services.');
+    $('network-select').value=local;$('operator-seed').value='';$('signed-headers').value='';
+    choose(operation);
+    $('request-body').value=JSON.stringify({subject_sovereign_id:peer,subject_public_keys:keys,scope:{allowed_roles:[...new Set(roles)]},validity_hours:hours},null,2);
+    updateInsertFields();$('operator-panel').open=true;
+    $('federation-state').textContent='Prepared: '+local+' recognizes '+peer+'. Review the pinned keys, roles and validity below, then sign to submit.';
+    $('request-state').textContent='Prepared for review. No treaty has been created.';
+    $('request-body').scrollIntoView({behavior:'smooth',block:'center'});
+  } catch(error) {$('federation-state').textContent=error.message;}
+});

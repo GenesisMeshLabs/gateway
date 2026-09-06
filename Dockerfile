@@ -17,8 +17,9 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=gateway-cross-target-${TARGETARCH} \
     case "$TARGETARCH" in amd64) target=x86_64-unknown-linux-gnu ;; arm64) target=aarch64-unknown-linux-gnu ;; *) exit 1 ;; esac \
- && cargo build --locked --release --target "$target" --bin genesis-mesh-gateway \
- && cp "target/$target/release/genesis-mesh-gateway" /usr/local/bin/genesis-mesh-gateway
+ && cargo build --locked --release --target "$target" --bin genesis-mesh-gateway --bin genesis-mesh-operator \
+ && cp "target/$target/release/genesis-mesh-gateway" /usr/local/bin/genesis-mesh-gateway \
+ && cp "target/$target/release/genesis-mesh-operator" /usr/local/bin/genesis-mesh-operator
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -26,6 +27,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 gateway
 COPY --from=build /usr/local/bin/genesis-mesh-gateway /usr/local/bin/genesis-mesh-gateway
+COPY --from=build /usr/local/bin/genesis-mesh-operator /usr/local/bin/genesis-mesh-operator
 USER gateway
 ENV GATEWAY_ADDR=0.0.0.0:8080
 EXPOSE 8080
