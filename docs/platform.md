@@ -60,6 +60,11 @@ immutable collector for tamper resistance; SQLite is not WORM storage.
 
 ## Organization identity and mounted secrets
 
+The current deployment deliberately retains scoped bearer authentication; see
+[ADR 0001](adr/0001-deployment-authentication.md) for lifecycle requirements and
+the conditions for activating organization identity. OIDC availability does not
+mean it is enabled or that existing bearer credentials have been disabled.
+
 `GATEWAY_OIDC_FILE` contains the schema below. JWT subjects map to existing
 policy clients, retaining their network, service-group, operator and metrics
 scopes and quota. The gateway never grants scopes directly from arbitrary claims.

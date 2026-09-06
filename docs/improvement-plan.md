@@ -1,6 +1,6 @@
 # Gateway improvement plan
 
-Reviewed against gateway v0.57.0 and its published deployment on 2026-09-06. These are
+Reviewed against gateway v0.57.0; authentication decision updated on 2026-09-07. These are
 engineering controls, not claims of certification or universal production readiness.
 
 | Improvement | Delivery | Evidence |
@@ -22,7 +22,7 @@ engineering controls, not claims of certification or universal production readin
 | Required network roles | Enabled in published deployment | All four configured networks require `role:client`; this does not change federation membership or treaty semantics |
 | Durable audit | Implemented; local sink enabled | SQLite intent/completion records, decision context, backlog/storage metrics; optional explicitly acknowledged HTTPS export |
 | Shared quotas | Implemented; enabled in published deployment | Atomic Redis admission across replicas, persistent local Redis, backend failures deny admission rather than granting a local allowance |
-| Organization identity | Adapters implemented and tested; not activated here | Pinned OIDC claims map to scoped clients; native mTLS requires approved client certificates in addition to application authentication |
+| Deployment authentication | Scoped bearers deliberately retained; OIDC/mTLS adapters available | [Authentication decision](adr/0001-deployment-authentication.md) records scope, lifecycle requirements and triggers for organization identity activation |
 | Secrets integration | Mounted-file support implemented; provider deployment pending | Read-only credentials and TLS files; CSI fragment requires an organization's provider, workload identity and access policy |
 | Signed distribution | Published and verified | v0.57.0 Windows/Linux ZIPs and AMD64/ARM64 OCI archive have verified Sigstore bundles and checksums; OCI includes SPDX SBOM and SLSA provenance |
 
@@ -46,7 +46,7 @@ and its image-admission policy remain separate tasks.
 
 | Priority | Remaining work | Acceptance evidence |
 | --- | --- | --- |
-| P0 | Decide and activate organization authentication | Approved OIDC issuer/audience/subject mapping or an explicit scoped-bearer decision; for mTLS, approved PKI plus compatible ingress/probes and rotation tests |
+| P0 | Complete credential lifecycle acceptance | Scoped bearers selected for this deployment in ADR 0001; assign credential owners/rotation schedules and verify replacement/old-token rejection on every replica. Organization OIDC/PKI activation applies when the ADR's migration conditions arise |
 | P0 | Complete operational recovery acceptance | Revoke a dedicated canary, observe denial, restart the relevant gateway/consumers, confirm retained floors and continued denial; distinguish gateway JoinCRLs from authority membership feeds |
 | P0 | Protect and recover persistent storage | Consistent backups, tested restore, protected external sequence records and issuer-key rotation procedure; never reinitialize lost state to regain readiness |
 | P0 | Define audit retention and integrity requirements | Size/alert on the local sink; if required, activate an independently controlled collector, verify durable acknowledgements, retries and retention; local SQLite is not WORM storage |
