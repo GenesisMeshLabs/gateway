@@ -1,6 +1,6 @@
 # Gateway improvement plan
 
-Implemented against the existing Rust gateway, September 2026. These are
+Reviewed against gateway v0.57.0 and its published deployment on 2026-09-06. These are
 engineering controls, not claims of certification or universal production readiness.
 
 | Improvement | Delivery | Evidence |
@@ -17,6 +17,20 @@ engineering controls, not claims of certification or universal production readin
 | Safer containers | Implemented | Non-root, read-only filesystem, dropped capabilities, process/memory/CPU limits and bounded log files |
 | Reproducible validation | Implemented | Locked dependencies, Python interoperability fixtures, security regression tests and Windows/Linux CI |
 | Public deployment | Implemented and verified | Existing Cloudflare tunnel to `mesh.genesismesh.org`; retain previous image for rollback |
+| Durable CRL high-water marks | Implemented; enabled in published deployment | Gateway-owned SQLite checkpoints, verified restore before serving, explicit first-time initialization and exclusive replica ownership |
+| Multiple CRL issuers | Implemented | Independently pinned and refreshed issuer snapshots; issuer-specific verification and parent network role requirements |
+| Required network roles | Enabled in published deployment | All four configured networks require `role:client`; this does not change federation membership or treaty semantics |
+| Durable audit | Implemented; local sink enabled | SQLite intent/completion records, decision context, backlog/storage metrics; optional explicitly acknowledged HTTPS export |
+| Shared quotas | Implemented; enabled in published deployment | Atomic Redis admission across replicas, persistent local Redis, backend failures deny admission rather than granting a local allowance |
+| Organization identity | Adapters implemented and tested; not activated here | Pinned OIDC claims map to scoped clients; native mTLS requires approved client certificates in addition to application authentication |
+| Secrets integration | Mounted-file support implemented; provider deployment pending | Read-only credentials and TLS files; CSI fragment requires an organization's provider, workload identity and access policy |
+| Signed distribution | Published and verified | v0.57.0 Windows/Linux ZIPs and AMD64/ARM64 OCI archive have verified Sigstore bundles and checksums; OCI includes SPDX SBOM and SLSA provenance |
+
+Implementation and activation details are in [platform controls](platform.md).
+The [v0.57.0 release](https://github.com/GenesisMeshLabs/gateway/releases/tag/v0.57.0)
+contains nine files: three archives and their checksums/signature bundles. These
+are signatures over archive bytes; publication into an organization's registry
+and its image-admission policy remain separate tasks.
 
 ## Why these priorities
 
@@ -30,19 +44,38 @@ engineering controls, not claims of certification or universal production readin
 
 ## Next rollout gates
 
-1. Persist CRL high-water marks across restarts, with controlled bootstrap
-   recovery and signed policy distribution. Current refresh prevents rollback
-   within a process; the configured sequence floor is the restart baseline.
-2. Integrate organization identity (OIDC or mTLS), tenant lifecycle and external
-   secrets management. Current authentication uses scoped service tokens.
-3. Connect a durable, integrity-protected audit sink with explicit delivery
-   guarantees and retention policy.
-4. Establish SLOs using deployment-specific load/soak tests, distributed quotas,
-   multi-instance rollout and failover drills.
-5. Add SBOM/provenance and signed image publication to the organization's
-   release pipeline; run independent penetration and conformance reviews.
-6. Extend issuer/CRL aggregation for multi-authority federation only after
-   defining its revocation semantics and interoperability fixtures.
+| Priority | Remaining work | Acceptance evidence |
+| --- | --- | --- |
+| P0 | Decide and activate organization authentication | Approved OIDC issuer/audience/subject mapping or an explicit scoped-bearer decision; for mTLS, approved PKI plus compatible ingress/probes and rotation tests |
+| P0 | Complete operational recovery acceptance | Revoke a dedicated canary, observe denial, restart the relevant gateway/consumers, confirm retained floors and continued denial; distinguish gateway JoinCRLs from authority membership feeds |
+| P0 | Protect and recover persistent storage | Consistent backups, tested restore, protected external sequence records and issuer-key rotation procedure; never reinitialize lost state to regain readiness |
+| P0 | Define audit retention and integrity requirements | Size/alert on the local sink; if required, activate an independently controlled collector, verify durable acknowledgements, retries and retention; local SQLite is not WORM storage |
+| P1 | Activate an organization secrets provider | Real provider configuration, least-privilege workload identity, mounted secrets and controlled rotation; a CSI fragment alone is not a vault deployment |
+| P1 | Sign off deployment-specific availability and capacity | Load/soak tests, mixed verification and authority traffic, replica/backend failure drills, Redis HA loss semantics and measured recovery objectives; local Redis remains a single availability dependency |
+| P1 | Adopt release artifacts in the organization | Verify archive signatures and SBOMs, scan/import images, enforce approved digests and registry/admission policy |
+| External | Independent review and accreditation | Penetration/conformance findings and remediation, privacy review and the organization's accreditation decision |
+| Phase 2 | External operator adoption | Independent implementations, governance, protocol/runbook stability and real application memberships; public demo records do not prove adoption |
+
+## Recovery evidence boundaries
+
+Automated gateway tests cover restoring a persisted revoked certificate against
+an older bootstrap policy, rejecting forged or regressing CRLs, corrupt state,
+concurrent ownership and audit recovery. Run the focused existing tests with:
+
+```text
+cargo test --locked --test production durable_
+```
+
+These tests reopen the store in the test process. They are not a live
+kill/restart, disk-loss, or power-failure drill. The deployment restart retained
+its CRL floors and audit records, and a separate two-replica local read workload
+passed 100 requests at concurrency four with p99 42.74 ms. Neither establishes
+a production SLO or proves survival of backend failover.
+
+The isolated replica stop/start drill was blocked by automatic approval review
+and remains unverified. The complete membership revoke/propagate/restart
+checklist is in [federation operations](federation.md); its consumer restart
+acceptance must not be inferred from matching feed sequence numbers.
 
 Avoid adding speculative post-quantum algorithms to the wire format: the
 Genesis Mesh protocol authority must define algorithm negotiation and migration
