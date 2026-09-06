@@ -67,6 +67,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: gateway-*
           path: artifacts
           merge-multiple: true
       - run: gh release create "$RELEASE_TAG" artifacts/* --repo "$REPOSITORY" --verify-tag --generate-notes --latest
