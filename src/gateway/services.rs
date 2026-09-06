@@ -38,8 +38,10 @@ pub(super) async fn catalog() -> Json<Value> {
 
 pub(super) async fn execute(
     State(state): State<AppState>,
-    Extension(principal): Extension<Principal>,
-    Extension(facts): Extension<super::runtime::AuditFacts>,
+    (Extension(principal), Extension(facts)): (
+        Extension<Principal>,
+        Extension<super::runtime::AuditFacts>,
+    ),
     Path((network, operation)): Path<(String, String)>,
     Query(query): Query<BTreeMap<String, String>>,
     method: Method,
