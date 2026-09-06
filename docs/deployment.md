@@ -1,6 +1,6 @@
 # Deployment record
 
-Date: 2026-09-06. Application version: 0.56.0.
+Date: 2026-09-06. Application version: 0.56.1.
 
 The Rust gateway is deployed at https://mesh.genesismesh.org/ using the existing
 Cloudflare Tunnel and Docker Compose on the operator's host. Availability depends
@@ -58,3 +58,22 @@ CI workflows are added but have not been executed by a remote CI service in this
 change. Dependency audit and image security scans remain release gates. See
 [operations](operations.md) for trust boundaries and
 [the improvement plan](improvement-plan.md) for subsequent rollout work.
+
+## Service expansion, v0.56.1
+
+The published console now offers 67 operations, including 59 scoped authority
+operations. Local and public HTTPS verification covered signed attestation
+issuance/revocation, agreements, boundary decisions, disclosure and evidence.
+Local checks also covered data usage, consensus, node lifecycle and signed
+discovery. Browser-side operator signing completed a real authority request.
+
+56 gateway tests, Python-compatible browser signing tests and 209 reference
+authority tests passed. The two local authorities now use durable data-license
+policy storage, with a database backup retained before the additive migration.
+The active demonstration data policy survived an actual authority restart.
+
+The local gateway-operator identity retains its original token and is authorized
+for the service catalog on both networks. Operator operations additionally
+require independently signed X-Admin headers. No authority signing key was added
+to the gateway. The pre-services image and policy backup are retained locally;
+rolling back to 0.56.0 requires restoring both because it predates service scopes.

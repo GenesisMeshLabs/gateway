@@ -157,6 +157,7 @@ mod tests {
             networks: [(
                 "mesh".into(),
                 NetworkPolicy {
+                    authority_url: None,
                     anchors: [("authority".into(), key.public_key_b64())].into(),
                     crl: crl.clone(),
                     minimum_crl_sequence: 1,

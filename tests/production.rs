@@ -47,6 +47,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
     };
     crl.sign(&key, "authority").unwrap();
     let network = NetworkPolicy {
+        authority_url: None,
         crl_url: None,
         allow_http: false,
         anchors: [("authority".into(), key.public_key_b64())].into(),
@@ -57,6 +58,8 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
         revoked_index: Default::default(),
     };
     let client = Client {
+        service_groups: Default::default(),
+        authority_admin: false,
         id: "agency-service".into(),
         token_sha256: format!("{:x}", Sha256::digest(TOKEN.as_bytes())),
         networks: ["public-agency".into()].into(),
@@ -491,4 +494,235 @@ async fn replica_request_identifiers_do_not_collide() {
         first.headers()["x-request-id"],
         second.headers()["x-request-id"]
     );
+}
+
+fn service_fixture(origin: &str) -> Config {
+    let (mut cfg, _, _) = fixture();
+    let policy = cfg.security.as_mut().unwrap();
+    let network = policy.networks.get_mut("public-agency").unwrap();
+    network.authority_url = Some(origin.into());
+    network.allow_http = true;
+    policy.clients[0].service_groups = ["network".into(), "attestations".into()].into();
+    cfg
+}
+
+#[tokio::test]
+async fn authority_services_enforce_network_group_and_operator_scope() {
+    let cfg = service_fixture("http://127.0.0.1:9");
+    let app = router(cfg.clone());
+    assert_eq!(
+        call(
+            &app,
+            "/v1/networks/other/services/public-get-genesis",
+            None,
+            Some(TOKEN)
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "/v1/networks/public-agency/services/admin-create-invite",
+            Some(json!({})),
+            Some(TOKEN)
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &app,
+            "/v1/networks/public-agency/services/attestations-issue-attestation",
+            Some(json!({})),
+            Some(TOKEN)
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    let mut cfg = cfg;
+    cfg.security.as_mut().unwrap().clients[0].authority_admin = true;
+    let app = router(cfg);
+    let (status, body) = call(
+        &app,
+        "/v1/networks/public-agency/services/attestations-issue-attestation",
+        Some(json!({})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body["error"].as_str().unwrap().contains("operator-signed"));
+}
+
+async fn mock_authority(app: Router) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (origin, task)
+}
+
+#[tokio::test]
+async fn authority_forwarding_preserves_signed_body_but_never_gateway_credentials() {
+    async fn receive(
+        headers: axum::http::HeaderMap,
+        body: axum::body::Bytes,
+    ) -> (StatusCode, axum::Json<Value>) {
+        assert!(!headers.contains_key("authorization"));
+        assert!(!headers.contains_key("cookie"));
+        assert!(!headers.contains_key("x-forwarded-host"));
+        assert_eq!(headers["x-admin-key-id"], "operator-test");
+        assert_eq!(
+            body.as_ref(),
+            b"{ \"subject_id\": \"subject\", \"roles\": [\"member\"] }"
+        );
+        (
+            StatusCode::CREATED,
+            axum::Json(json!({"attestation_id":"created"})),
+        )
+    }
+    let (origin, task) =
+        mock_authority(Router::new().route("/admin/attestations", axum::routing::post(receive)))
+            .await;
+    let mut cfg = service_fixture(&origin);
+    cfg.security.as_mut().unwrap().clients[0].authority_admin = true;
+    let app = router(cfg);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/networks/public-agency/services/attestations-issue-attestation")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("cookie", "session=must-not-forward")
+                .header("x-forwarded-host", "attacker.invalid")
+                .header("x-admin-key-id", "operator-test")
+                .header("x-admin-timestamp", "2026-09-06T00:00:00Z")
+                .header("x-admin-nonce", "unique-nonce")
+                .header("x-admin-signature", "signed-request")
+                .body(Body::from(
+                    "{ \"subject_id\": \"subject\", \"roles\": [\"member\"] }",
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    task.abort();
+}
+
+#[tokio::test]
+async fn authority_rejects_path_injection_unknown_queries_and_wrong_methods() {
+    let app = router(service_fixture("http://127.0.0.1:9"));
+    for path in [
+        "/v1/networks/public-agency/services/attestations-get-attestation?attestation_id=..%2Fadmin",
+        "/v1/networks/public-agency/services/attestations-get-attestation?attestation_id=%252e%252e",
+        "/v1/networks/public-agency/services/public-get-genesis?url=http://attacker.invalid",
+    ] { assert_eq!(call(&app,path,None,Some(TOKEN)).await.0,StatusCode::BAD_REQUEST,"{path}"); }
+    assert_eq!(
+        call(
+            &app,
+            "/v1/networks/public-agency/services/public-get-genesis",
+            Some(json!({})),
+            Some(TOKEN)
+        )
+        .await
+        .0,
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+    assert_eq!(
+        call(
+            &app,
+            "/v1/networks/public-agency/services/not-a-service",
+            None,
+            Some(TOKEN)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn authority_redirects_and_non_json_responses_fail_closed() {
+    for response in [
+        axum::response::Response::builder()
+            .status(302)
+            .header("location", "http://127.0.0.1:9/private")
+            .body(Body::empty())
+            .unwrap(),
+        axum::response::Response::builder()
+            .status(200)
+            .body(Body::from("<html>private failure detail</html>"))
+            .unwrap(),
+        axum::response::Response::builder()
+            .status(500)
+            .body(Body::from("private failure detail"))
+            .unwrap(),
+        axum::response::Response::builder()
+            .status(200)
+            .body(Body::from("x".repeat(2 * 1024 * 1024 + 1)))
+            .unwrap(),
+    ] {
+        let saved = std::sync::Arc::new(tokio::sync::Mutex::new(Some(response)));
+        let (origin, task) = mock_authority(Router::new().route(
+            "/genesis",
+            axum::routing::get(move || {
+                let saved = saved.clone();
+                async move { saved.lock().await.take().unwrap() }
+            }),
+        ))
+        .await;
+        let app = router(service_fixture(&origin));
+        let (status, body) = call(
+            &app,
+            "/v1/networks/public-agency/services/public-get-genesis",
+            None,
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(!body.to_string().contains("private failure detail"));
+        task.abort();
+    }
+}
+
+#[test]
+fn authority_origins_reject_credentials_paths_queries_and_implicit_http() {
+    for origin in [
+        "http://name:password@localhost",
+        "http://localhost/path",
+        "http://localhost?url=other",
+        "file:///tmp/a",
+    ] {
+        assert!(service_fixture(origin).prepare().is_err());
+    }
+    let mut cfg = service_fixture("http://localhost");
+    cfg.security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .allow_http = false;
+    assert!(cfg.prepare().is_err());
+}
+
+#[tokio::test]
+async fn every_catalog_operation_is_documented_in_openapi() {
+    let app = router(fixture().0);
+    let (_, catalog) = call(&app, "/v1/services", None, None).await;
+    let (_, spec) = call(&app, "/openapi.json", None, None).await;
+    let operations = catalog["operations"].as_array().unwrap();
+    assert!(operations.len() >= 59);
+    for op in operations {
+        let path = format!(
+            "/v1/networks/{{network}}/services/{}",
+            op["id"].as_str().unwrap()
+        );
+        assert!(spec["paths"].get(path).is_some());
+    }
 }

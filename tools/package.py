@@ -23,7 +23,7 @@ def main():
         parser.error("binary version does not match Cargo.toml")
     args.output.mkdir(parents=True, exist_ok=True)
     archive = args.output / f"genesis-mesh-gateway-{version}-{args.platform}.zip"
-    files = ["README.md", "docs/distribution.md", "docs/operations.md", "ui/openapi.json",
+    files = ["README.md", "docs/distribution.md", "docs/operations.md", "docs/services.md", "ui/openapi.json", "ui/services.json",
              "deploy/compose.yml", "deploy/kubernetes.yaml"]
     binary_hash = hashlib.sha256(args.binary.read_bytes()).hexdigest()
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

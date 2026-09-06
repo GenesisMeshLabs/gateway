@@ -36,10 +36,10 @@ provenance and use your organization's signing pipeline before external release.
 For an offline transfer of a locally built multi-platform Docker image:
 
 ```sh
-docker save -o genesis-mesh-gateway-0.56.0-images.tar genesis-mesh-gateway:0.56.0
+docker save -o genesis-mesh-gateway-0.56.1-images.tar genesis-mesh-gateway:0.56.1
 # Transfer the archive and its SHA-256 sidecar through your approved channel.
-docker load -i genesis-mesh-gateway-0.56.0-images.tar
-docker run --rm genesis-mesh-gateway:0.56.0 --version
+docker load -i genesis-mesh-gateway-0.56.1-images.tar
+docker run --rm genesis-mesh-gateway:0.56.1 --version
 ```
 
 Compare the archive checksum before loading (`sha256sum` on Linux or

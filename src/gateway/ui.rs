@@ -16,6 +16,12 @@ pub(super) async fn script() -> impl IntoResponse {
         include_str!("../../ui/app.js"),
     )
 }
+pub(super) async fn signing_script() -> impl IntoResponse {
+    (
+        [("content-type", "text/javascript; charset=utf-8")],
+        include_str!("../../ui/signing.js"),
+    )
+}
 pub(super) async fn style() -> impl IntoResponse {
     (
         [("content-type", "text/css; charset=utf-8")],
@@ -43,9 +49,11 @@ pub(super) async fn networks(
     let client = &policy.clients[principal.0.ok_or_else(ApiError::unauthorized)?];
     let networks: Vec<Value> = policy.networks.iter().filter(|(name, _)| client.networks.contains(*name)).map(|(name, network)| json!({
         "name": name, "ready": network.ready(chrono::Utc::now()), "anchors": network.anchors,
+        "services_configured": network.authority_url.is_some(),
         "required_roles": network.required_roles, "revocation": {"issuer":network.crl.issuer, "sequence":network.crl.sequence, "issued_at":network.crl.issued_at, "next_update":network.crl.next_update, "revoked_count":network.crl.revoked_certificates.len()}
     })).collect();
     Ok(Json(
-        json!({"policy_revision":policy.revision,"client_id":client.id,"networks":networks}),
+        json!({"policy_revision":policy.revision,"client_id":client.id,"networks":networks,
+            "service_groups":client.service_groups,"authority_admin":client.authority_admin}),
     ))
 }

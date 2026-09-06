@@ -19,6 +19,8 @@ canonical JSON and signature compatibility.
 - Cancellation-safe worker limits, bounded bodies/batches, request deadlines.
 - JSON audit logs, request correlation, Prometheus metrics and readiness probes.
 - Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
+- 59 scoped Network Authority operations across all seven SDK service areas,
+  enrollment, discovery, treaties and administration, with browser-side operator signing.
 - Non-root container with read-only filesystem and constrained resources.
 
 ## API
@@ -31,6 +33,8 @@ canonical JSON and signature compatibility.
 | GET | `/health` | Public liveness |
 | GET | `/ready` | Public trust readiness |
 | GET | `/v1/networks` | Client-authorized networks only |
+| GET | `/v1/services` | Public operation catalog and request examples |
+| GET/POST/DELETE | `/v1/networks/{network}/services/{operation}` | Network and service-group scope; operator signatures for admin operations |
 | GET | `/metrics` | Bearer token with metrics permission |
 | POST | `/verify` | Bearer token with certificate network permission |
 | POST | `/verify/batch` | Bearer token with every certificate network permission |
@@ -78,3 +82,6 @@ or complete Genesis Mesh Network Authority.
 See [distribution](docs/distribution.md) for portable images, checksummed binary
 bundles, configuration validation and Kubernetes rolling deployments. The
 `--check-config` command validates operator policy without starting the server.
+
+See [authority services](docs/services.md) for the full service catalog, browser
+workflow, per-client permissions and authority persistence requirements.

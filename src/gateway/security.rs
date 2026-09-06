@@ -30,6 +30,12 @@ pub struct SecurityPolicy {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Client {
+    /// Allowed authority service groups. Empty disables authority access.
+    #[serde(default)]
+    pub service_groups: BTreeSet<String>,
+    /// Permit operator-signed authority operations in the allowed groups.
+    #[serde(default)]
+    pub authority_admin: bool,
     /// Nonsecret audit identity.
     pub id: String,
     /// SHA-256 digest of a high-entropy bearer token, lowercase hex.
@@ -50,6 +56,9 @@ pub struct Client {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkPolicy {
+    /// Operator-pinned authority origin used by the explicit service allowlist.
+    #[serde(default)]
+    pub authority_url: Option<String>,
     /// Optional pinned authority CRL endpoint, refreshed every sixty seconds.
     #[serde(default)]
     pub crl_url: Option<String>,
@@ -103,6 +112,19 @@ impl SecurityPolicy {
             }
         }
         for (name, network) in &self.networks {
+            if let Some(raw) = &network.authority_url {
+                let url = reqwest::Url::parse(raw).map_err(|_| "invalid authority URL")?;
+                if !(url.scheme() == "https" || (url.scheme() == "http" && network.allow_http))
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                    || url.path() != "/"
+                {
+                    return Err("authority URL must be an HTTPS origin without credentials, path, query or fragment; private HTTP requires opt-in".into());
+                }
+            }
             if let Some(raw) = &network.crl_url {
                 let url = reqwest::Url::parse(raw).map_err(|_| "invalid CRL URL")?;
                 if !(url.scheme() == "https" || (url.scheme() == "http" && network.allow_http))

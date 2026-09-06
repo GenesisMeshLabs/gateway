@@ -11,6 +11,7 @@ mod error;
 mod handlers;
 mod runtime;
 pub mod security;
+mod services;
 mod sync;
 mod ui;
 
@@ -40,6 +41,7 @@ pub struct AppState {
     metrics: Arc<runtime::Metrics>,
     quotas: Arc<Vec<runtime::Window>>,
     dev_token_digest: Option<[u8; 32]>,
+    authority_http: reqwest::Client,
 }
 
 /// Build the gateway router. Exposed for in-process testing.
@@ -58,6 +60,13 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         Sha256::digest(token.as_bytes()).into()
     });
     let state = AppState {
+        authority_http: reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .expect("authority HTTP client"),
         security: Arc::new(arc_swap::ArcSwapOption::from(
             cfg.security.clone().map(Arc::new),
         )),
@@ -74,8 +83,10 @@ fn build_router(cfg: Config) -> (Router, AppState) {
     let open = Router::new()
         .route("/", get(ui::page))
         .route("/assets/app.js", get(ui::script))
+        .route("/assets/signing.js", get(ui::signing_script))
         .route("/assets/style.css", get(ui::style))
         .route("/api", get(handlers::index))
+        .route("/v1/services", get(services::catalog))
         .route("/openapi.json", get(ui::specification))
         .route("/health", get(handlers::health))
         .route("/ready", get(runtime::ready));
@@ -87,6 +98,10 @@ fn build_router(cfg: Config) -> (Router, AppState) {
             .route("/issue", post(handlers::issue));
     }
     let guarded = guarded
+        .route(
+            "/v1/networks/:network/services/:operation",
+            axum::routing::any(services::execute),
+        )
         .route("/metrics", get(runtime::metrics))
         .route("/v1/networks", get(ui::networks))
         .route("/verify", post(handlers::verify))

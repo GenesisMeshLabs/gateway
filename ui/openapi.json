@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Genesis Mesh Trust Gateway",
-    "version": "0.56.0",
+    "version": "0.56.1",
     "description": "Operator-controlled Genesis Mesh trust verification. HTTP 200 is not a trust grant; inspect trusted in each decision."
   },
   "servers": [
@@ -370,6 +370,4630 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/services": {
+      "get": {
+        "summary": "List authority service operations",
+        "responses": {
+          "200": {
+            "description": "Service catalog"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-create-invite": {
+      "post": {
+        "operationId": "admin-create-invite",
+        "summary": "Create invite",
+        "description": "Create a persisted invite token for a pre-authorized node. Upstream: /admin/invite",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "roles": [
+                  "role:client"
+                ],
+                "max_validity_hours": 1,
+                "token_expiry_hours": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-publish-policy": {
+      "post": {
+        "operationId": "admin-publish-policy",
+        "summary": "Publish policy",
+        "description": "Publish and activate a signed policy version. Upstream: /admin/policy",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "min_client_version": "0.56.0",
+                "allowed_ports": [
+                  443,
+                  8443
+                ],
+                "allowed_services": [],
+                "routing": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-policy-history": {
+      "get": {
+        "operationId": "admin-policy-history",
+        "summary": "Policy history",
+        "description": "Return persisted policy versions. Upstream: /admin/policy/history",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-rollback-policy": {
+      "post": {
+        "operationId": "admin-rollback-policy",
+        "summary": "Rollback policy",
+        "description": "Activate a previously persisted policy version. Upstream: /admin/policy/rollback",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "policy_id": "PASTE_POLICY_ID"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-revoke-certificate": {
+      "post": {
+        "operationId": "admin-revoke-certificate",
+        "summary": "Revoke certificate",
+        "description": "Revoke an issued certificate and publish a new signed CRL. Upstream: /admin/revoke",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "cert_id": "PASTE_CERTIFICATE_ID",
+                "reason": "cessation_of_operation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/admin-revoke-operator-key": {
+      "post": {
+        "operationId": "admin-revoke-operator-key",
+        "summary": "Revoke operator key",
+        "description": "Switch an operator key off without restarting the service (F-21). Upstream: /admin/operator-keys/{key_id}/revoke",
+        "tags": [
+          "administration"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "reason": "cessation_of_operation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/agreement-build-offer-route": {
+      "post": {
+        "operationId": "agreement-build-offer-route",
+        "summary": "Build offer",
+        "description": "Build and sign a CapabilityOffer as the NA sovereign. Upstream: /admin/agreements/offer",
+        "tags": [
+          "agreement"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "responder_sovereign_id": "sovereign-b",
+                "capabilities": [
+                  "read",
+                  "write"
+                ],
+                "scope": {},
+                "valid_from": "2026-06-01T00:00:00Z",
+                "valid_until": "2026-06-02T00:00:00Z",
+                "expires_at": "2026-06-01T01:00:00Z"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/agreement-build-counter-route": {
+      "post": {
+        "operationId": "agreement-build-counter-route",
+        "summary": "Build counter",
+        "description": "Build and sign a CapabilityCounter in response to an existing offer. Upstream: /admin/agreements/counter",
+        "tags": [
+          "agreement"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "offer": {
+                  "<CapabilityOffer>": "..."
+                },
+                "capabilities": [
+                  "read"
+                ],
+                "scope": {},
+                "valid_from": "2026-06-01T00:00:00Z",
+                "valid_until": "2026-06-01T12:00:00Z"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/agreement-accept-route": {
+      "post": {
+        "operationId": "agreement-accept-route",
+        "summary": "Accept",
+        "description": "Accept an offer or counter-offer, producing a signed AgreementRecord. Upstream: /admin/agreements/accept",
+        "tags": [
+          "agreement"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "offer": {
+                  "<CapabilityOffer>": "..."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/agreement-verify-route": {
+      "post": {
+        "operationId": "agreement-verify-route",
+        "summary": "Verify",
+        "description": "Verify a signed AgreementRecord without storing it. Upstream: /agreements/verify",
+        "tags": [
+          "agreement"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "agreement": {
+                  "<AgreementRecord>": "..."
+                },
+                "offerer_public_keys": [
+                  "<base64-ed25519>"
+                ],
+                "responder_public_keys": [
+                  "<base64-ed25519>"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-issue-attestation": {
+      "post": {
+        "operationId": "attestations-issue-attestation",
+        "summary": "Issue attestation",
+        "description": "Issue a signed membership attestation for a subject. Upstream: /admin/attestations",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "subject_id": "gateway-demo-subject",
+                "roles": [
+                  "role:client"
+                ],
+                "validity_hours": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-revoke-attestation": {
+      "post": {
+        "operationId": "attestations-revoke-attestation",
+        "summary": "Revoke attestation",
+        "description": "Revoke an issued membership attestation. Upstream: /admin/attestations/{attestation_id}/revoke",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attestation_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "reason": "cessation_of_operation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-save-recognition-policy": {
+      "post": {
+        "operationId": "attestations-save-recognition-policy",
+        "summary": "Save recognition policy",
+        "description": "Persist the local recognition policy used by attestation verification. Upstream: /admin/recognition-policy",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "recognition_policy": {
+                  "local_sovereign_id": "authority-a",
+                  "recognized_issuers": []
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-get-recognition-policy": {
+      "get": {
+        "operationId": "attestations-get-recognition-policy",
+        "summary": "Get recognition policy",
+        "description": "Return the active local recognition policy, if configured. Upstream: /recognition-policy",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-get-attestation": {
+      "get": {
+        "operationId": "attestations-get-attestation",
+        "summary": "Get attestation",
+        "description": "Return a persisted membership attestation by ID. Upstream: /attestations/{attestation_id}",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "attestation_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-list-attestations": {
+      "get": {
+        "operationId": "attestations-list-attestations",
+        "summary": "List attestations",
+        "description": "List persisted membership attestations. Upstream: /attestations",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issuer_sovereign_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-sovereign-revocation-feed": {
+      "get": {
+        "operationId": "attestations-sovereign-revocation-feed",
+        "summary": "Sovereign revocation feed",
+        "description": "Publish a signed feed of revoked membership attestations. Upstream: /sovereign-revocation-feed",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/attestations-verify-attestation": {
+      "post": {
+        "operationId": "attestations-verify-attestation",
+        "summary": "Verify attestation",
+        "description": "Verify a membership attestation against a local recognition policy. Upstream: /attestations/verify",
+        "tags": [
+          "attestations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "attestation": {},
+                "recognition_policy": {
+                  "local_sovereign_id": "authority-a",
+                  "recognized_issuers": [
+                    {
+                      "sovereign_id": "authority-a",
+                      "public_keys": [
+                        "PASTE_AUTHORITY_PUBLIC_KEY"
+                      ],
+                      "allowed_roles": [
+                        "role:client"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/boundary-decide": {
+      "post": {
+        "operationId": "boundary-decide",
+        "summary": "Decide",
+        "description": "Evaluate a ContextRecord against an AgreementRecord and sign the decision. Upstream: /admin/boundary/decide",
+        "tags": [
+          "boundary"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "agreement": {
+                  "<AgreementRecord>": "..."
+                },
+                "requested_capability": "read",
+                "context": {
+                  "requester_sovereign_id": "sovereign-b",
+                  "request_parameters": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/boundary-verify": {
+      "post": {
+        "operationId": "boundary-verify",
+        "summary": "Verify",
+        "description": "Verify a signed BoundaryDecision. Upstream: /boundary/verify",
+        "tags": [
+          "boundary"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "decision": {
+                  "<BoundaryDecision>": "..."
+                },
+                "operator_public_keys": [
+                  "<base64-ed25519>"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/consensus-vote": {
+      "post": {
+        "operationId": "consensus-vote",
+        "summary": "Vote",
+        "description": "Cast a ValidatorVote signed by the NA as validator. Upstream: /admin/consensus/vote",
+        "tags": [
+          "consensus"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "justification_proof": {
+                  "<JustificationProof>": "..."
+                },
+                "vote": true,
+                "reason": "decision aligns with recognition policy"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/consensus-proof": {
+      "post": {
+        "operationId": "consensus-proof",
+        "summary": "Proof",
+        "description": "Assemble a ConsensusProof from votes, signed by the NA as assembler. Upstream: /admin/consensus/proof",
+        "tags": [
+          "consensus"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "justification_proof": {
+                  "<JustificationProof>": "..."
+                },
+                "votes": [
+                  {
+                    "<ValidatorVote>": "..."
+                  }
+                ],
+                "required_threshold": 2,
+                "validator_sovereign_ids": [
+                  "na-1",
+                  "na-2"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/consensus-verify": {
+      "post": {
+        "operationId": "consensus-verify",
+        "summary": "Verify",
+        "description": "Verify a ConsensusProof signature and threshold. Upstream: /consensus/verify",
+        "tags": [
+          "consensus"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "proof": {
+                  "<ConsensusProof>": "..."
+                },
+                "validator_public_keys": {
+                  "validator-1": "<base64>",
+                  "validator-2": "<base64>"
+                },
+                "assembler_public_keys": [
+                  "<base64-ed25519>"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/crl-get-crl": {
+      "get": {
+        "operationId": "crl-get-crl",
+        "summary": "Get crl",
+        "description": "Return the active signed certificate revocation list. Upstream: /crl",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/data_usage-create-policy": {
+      "post": {
+        "operationId": "data_usage-create-policy",
+        "summary": "Create policy",
+        "description": "Create and sign a DataLicensePolicy as licensor (NA). Upstream: /admin/data-usage/policy",
+        "tags": [
+          "data_usage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "licensee_sovereign_id": "sovereign-b",
+                "allowed_source_ids": [
+                  "src-1"
+                ],
+                "allowed_access_types": [
+                  "read"
+                ],
+                "max_volume_bytes_per_session": null,
+                "prohibited_classification_tags": [],
+                "valid_from": "2026-06-01T00:00:00Z",
+                "valid_until": "2026-12-31T00:00:00Z"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/data_usage-create-intent": {
+      "post": {
+        "operationId": "data_usage-create-intent",
+        "summary": "Create intent",
+        "description": "Create and sign a DataAccessIntent as agent (NA). Upstream: /admin/data-usage/intent",
+        "tags": [
+          "data_usage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "sources": [
+                  {
+                    "source_id": "src-1",
+                    "source_type": "database",
+                    "owner_sovereign_id": "TEST",
+                    "classification_tags": []
+                  }
+                ],
+                "access_types": [
+                  "read"
+                ],
+                "decision_id": "dec-001",
+                "estimated_volume_bytes": 1048576
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/data_usage-get-policy": {
+      "get": {
+        "operationId": "data_usage-get-policy",
+        "summary": "Get policy",
+        "description": "Return the currently active DataLicensePolicy. Upstream: /data-usage/policy",
+        "tags": [
+          "data_usage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/data_usage-verify": {
+      "post": {
+        "operationId": "data_usage-verify",
+        "summary": "Verify",
+        "description": "Verify a DataAccessIntent against a DataLicensePolicy. Upstream: /data-usage/verify",
+        "tags": [
+          "data_usage"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "intent": {
+                  "<DataAccessIntent>": "..."
+                },
+                "policy": {
+                  "<DataLicensePolicy>": "..."
+                },
+                "agent_public_keys": [
+                  "<base64-ed25519>"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/disclosure-commit": {
+      "post": {
+        "operationId": "disclosure-commit",
+        "summary": "Commit",
+        "description": "Commit to a list of capabilities under an AgreementRecord, signed by the NA. Upstream: /admin/disclosure/commit",
+        "tags": [
+          "disclosure"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "capabilities": [
+                  "read",
+                  "write"
+                ],
+                "agreement": {
+                  "<AgreementRecord>": "..."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/disclosure-nullifier": {
+      "post": {
+        "operationId": "disclosure-nullifier",
+        "summary": "Nullifier",
+        "description": "Issue a one-time nullifier for a capability membership proof, signed by the NA. Upstream: /admin/disclosure/nullifier",
+        "tags": [
+          "disclosure"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "proof": {
+                  "<CapabilityMembershipProof>": "..."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/disclosure-prove": {
+      "post": {
+        "operationId": "disclosure-prove",
+        "summary": "Prove",
+        "description": "Generate a Merkle membership proof from caller-supplied data (no NA state used). Upstream: /disclosure/prove",
+        "tags": [
+          "disclosure"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "capability": "read",
+                "capabilities": [
+                  "read",
+                  "write"
+                ],
+                "commitment": {
+                  "<CapabilityCommitment>": "..."
+                },
+                "prover_sovereign_id": "sovereign-b"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/disclosure-verify": {
+      "post": {
+        "operationId": "disclosure-verify",
+        "summary": "Verify",
+        "description": "Verify a CapabilityMembershipProof against its commitment. Upstream: /disclosure/verify",
+        "tags": [
+          "disclosure"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "proof": {
+                  "<CapabilityMembershipProof>": "..."
+                },
+                "commitment": {
+                  "<CapabilityCommitment>": "..."
+                },
+                "issuer_public_keys": [
+                  "<base64-ed25519>"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/discovery-register-agent": {
+      "post": {
+        "operationId": "discovery-register-agent",
+        "summary": "Register agent",
+        "description": "Register or refresh a signed AgentDescriptor. Upstream: /agents",
+        "tags": [
+          "discovery"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "agent_id": "gateway-demo-agent",
+                "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+                "network_name": "authority-a",
+                "capabilities": [
+                  "read"
+                ],
+                "endpoint": {
+                  "host": "agent.example.org",
+                  "port": 443,
+                  "scheme": "wss"
+                },
+                "registered_at": "NOW",
+                "metadata": {},
+                "expires_at": "FUTURE_TIMESTAMP",
+                "signatures": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/discovery-list-agents": {
+      "get": {
+        "operationId": "discovery-list-agents",
+        "summary": "List agents",
+        "description": "Discover agents by capability. The unfiltered form returns counts only. Upstream: /agents",
+        "tags": [
+          "discovery"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/discovery-get-agent": {
+      "get": {
+        "operationId": "discovery-get-agent",
+        "summary": "Get agent",
+        "description": "Return one registration. Upstream: /agents/{node_public_key}",
+        "tags": [
+          "discovery"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_public_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/discovery-delete-agent": {
+      "delete": {
+        "operationId": "discovery-delete-agent",
+        "summary": "Delete agent",
+        "description": "Voluntary deregistration. Requires a signed envelope. Upstream: /agents/{node_public_key}",
+        "tags": [
+          "discovery"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_public_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "version": "1",
+                "signed_at": "NOW",
+                "signature": "PASTE_NODE_SIGNATURE"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/enrollment-request-join": {
+      "post": {
+        "operationId": "enrollment-request-join",
+        "summary": "Request join",
+        "description": "Issue a join certificate using a persisted invite token. Upstream: /join",
+        "tags": [
+          "enrollment"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "invite_token": "PASTE_INVITE_TOKEN",
+                "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+                "timestamp": "NOW",
+                "nonce": "UNIQUE_NONCE",
+                "signature": "PASTE_NODE_SIGNATURE"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/enrollment-heartbeat": {
+      "post": {
+        "operationId": "enrollment-heartbeat",
+        "summary": "Heartbeat",
+        "description": "Receive a signed heartbeat from an enrolled node. Upstream: /heartbeat",
+        "tags": [
+          "enrollment"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "cert_id": "PASTE_CERTIFICATE_ID",
+                "status": "active",
+                "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+                "timestamp": "NOW",
+                "nonce": "UNIQUE_NONCE",
+                "signature": "PASTE_NODE_SIGNATURE"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/enrollment-renew-certificate": {
+      "post": {
+        "operationId": "enrollment-renew-certificate",
+        "summary": "Renew certificate",
+        "description": "Renew a node certificate while preserving server-side roles. Upstream: /renew",
+        "tags": [
+          "enrollment"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "cert_id": "PASTE_CERTIFICATE_ID",
+                "validity_hours": 1,
+                "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+                "timestamp": "NOW",
+                "nonce": "UNIQUE_NONCE",
+                "signature": "PASTE_NODE_SIGNATURE"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/evidence-build": {
+      "post": {
+        "operationId": "evidence-build",
+        "summary": "Build",
+        "description": "Sign a TrustEvidence record from a TrustDecision. Upstream: /admin/trust-evidence",
+        "tags": [
+          "evidence"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "decision": {
+                  "source_sovereign_id": "TEST",
+                  "target_sovereign_id": "sovereign-b",
+                  "verdict": "allow",
+                  "reason": "direct recognition",
+                  "requested_roles": [],
+                  "trusted": true,
+                  "trust_path": [],
+                  "hop_count": 0,
+                  "signals": [],
+                  "evaluated_at": "2026-06-01T00:00:00Z"
+                },
+                "graph_digest": "<optional-sha256-hex>"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/evidence-verify": {
+      "post": {
+        "operationId": "evidence-verify",
+        "summary": "Verify",
+        "description": "Verify a TrustEvidence signature and optional graph digest. Upstream: /trust-evidence/verify",
+        "tags": [
+          "evidence"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "evidence": {
+                  "<TrustEvidence>": "..."
+                },
+                "issuer_public_keys": [
+                  "<base64-ed25519>"
+                ],
+                "expected_graph_digest": "<optional-sha256-hex>"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/health-health": {
+      "get": {
+        "operationId": "health-health",
+        "summary": "Health",
+        "description": "Return legacy health metadata. Upstream: /health",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/health-readyz": {
+      "get": {
+        "operationId": "health-readyz",
+        "summary": "Readyz",
+        "description": "Return readiness after checking DB, genesis, and NA key state. Upstream: /readyz",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/health-list-nodes": {
+      "get": {
+        "operationId": "health-list-nodes",
+        "summary": "List nodes",
+        "description": "Return the active node count; the full roster requires operator auth. Upstream: /nodes",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/public-dashboard-json": {
+      "get": {
+        "operationId": "public-dashboard-json",
+        "summary": "Dashboard json",
+        "description": "Return machine-readable dashboard state. Upstream: /dashboard.json",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/public-atlas-json": {
+      "get": {
+        "operationId": "public-atlas-json",
+        "summary": "Atlas json",
+        "description": "Return machine-readable Atlas summary with graph digest. Upstream: /atlas.json",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/public-get-genesis": {
+      "get": {
+        "operationId": "public-get-genesis",
+        "summary": "Get genesis",
+        "description": "Return the genesis block. Upstream: /genesis",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/public-sovereign-metadata": {
+      "get": {
+        "operationId": "public-sovereign-metadata",
+        "summary": "Sovereign metadata",
+        "description": "Return operator-safe public metadata for this sovereign. Upstream: /sovereign.json",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/public-get-policy": {
+      "get": {
+        "operationId": "public-get-policy",
+        "summary": "Get policy",
+        "description": "Return the active signed policy manifest. Upstream: /policy",
+        "tags": [
+          "network"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-issue-treaty": {
+      "post": {
+        "operationId": "treaties-issue-treaty",
+        "summary": "Issue treaty",
+        "description": "Issue a signed direct-recognition treaty for another sovereign. Upstream: /admin/recognition-treaties",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "subject_sovereign_id": "authority-b",
+                "subject_public_keys": [
+                  "PASTE_AUTHORITY_PUBLIC_KEY"
+                ],
+                "scope": {
+                  "allowed_roles": [
+                    "role:client"
+                  ]
+                },
+                "validity_hours": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-revoke-treaty": {
+      "post": {
+        "operationId": "treaties-revoke-treaty",
+        "summary": "Revoke treaty",
+        "description": "Revoke a locally issued or imported recognition treaty. Upstream: /admin/recognition-treaties/{treaty_id}/revoke",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "treaty_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "reason": "cessation_of_operation"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-get-treaty": {
+      "get": {
+        "operationId": "treaties-get-treaty",
+        "summary": "Get treaty",
+        "description": "Return a persisted recognition treaty by ID. Upstream: /recognition-treaties/{treaty_id}",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "treaty_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-list-treaties": {
+      "get": {
+        "operationId": "treaties-list-treaties",
+        "summary": "List treaties",
+        "description": "List persisted recognition treaties. Upstream: /recognition-treaties",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issuer_sovereign_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subject_sovereign_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-verify-treaty": {
+      "post": {
+        "operationId": "treaties-verify-treaty",
+        "summary": "Verify treaty",
+        "description": "Verify a signed recognition treaty. Upstream: /recognition-treaties/verify",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "treaty": {},
+                "issuer_public_keys": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-verify-attestation-with-treaty-route": {
+      "post": {
+        "operationId": "treaties-verify-attestation-with-treaty-route",
+        "summary": "Verify attestation with treaty",
+        "description": "Verify a membership attestation using a recognition treaty. Upstream: /attestations/verify-with-treaty",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "attestation": {},
+                "treaty": {},
+                "issuer_public_keys": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-import-sovereign-revocation-feed": {
+      "post": {
+        "operationId": "treaties-import-sovereign-revocation-feed",
+        "summary": "Import sovereign revocation feed",
+        "description": "Import a signed revocation feed from a recognized sovereign. Upstream: /admin/sovereign-revocation-feeds/import",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "feed": {},
+                "issuer_public_keys": [
+                  "PASTE_AUTHORITY_PUBLIC_KEY"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-recognition-graph": {
+      "get": {
+        "operationId": "treaties-recognition-graph",
+        "summary": "Recognition graph",
+        "description": "Export minimal sovereign recognition graph data. Upstream: /recognition-graph",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-connectome-json": {
+      "get": {
+        "operationId": "treaties-connectome-json",
+        "summary": "Connectome json",
+        "description": "Return an operator-facing Connectome view as JSON. Upstream: /connectome.json",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/treaties-connectome-trust-path": {
+      "get": {
+        "operationId": "treaties-connectome-trust-path",
+        "summary": "Connectome trust path",
+        "description": "Explain whether one sovereign currently recognizes another. Upstream: /connectome/trust-path",
+        "tags": [
+          "treaties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
           }
         }
       }

@@ -1,0 +1,1025 @@
+[
+  {
+    "id": "admin-create-invite",
+    "group": "administration",
+    "name": "Create invite",
+    "description": "Create a persisted invite token for a pre-authorized node.",
+    "method": "POST",
+    "upstream_path": "/admin/invite",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "roles": [
+        "role:client"
+      ],
+      "max_validity_hours": 1,
+      "token_expiry_hours": 1
+    }
+  },
+  {
+    "id": "admin-publish-policy",
+    "group": "administration",
+    "name": "Publish policy",
+    "description": "Publish and activate a signed policy version.",
+    "method": "POST",
+    "upstream_path": "/admin/policy",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "min_client_version": "0.56.0",
+      "allowed_ports": [
+        443,
+        8443
+      ],
+      "allowed_services": [],
+      "routing": {}
+    }
+  },
+  {
+    "id": "admin-policy-history",
+    "group": "administration",
+    "name": "Policy history",
+    "description": "Return persisted policy versions.",
+    "method": "GET",
+    "upstream_path": "/admin/policy/history",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "admin-rollback-policy",
+    "group": "administration",
+    "name": "Rollback policy",
+    "description": "Activate a previously persisted policy version.",
+    "method": "POST",
+    "upstream_path": "/admin/policy/rollback",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "policy_id": "PASTE_POLICY_ID"
+    }
+  },
+  {
+    "id": "admin-revoke-certificate",
+    "group": "administration",
+    "name": "Revoke certificate",
+    "description": "Revoke an issued certificate and publish a new signed CRL.",
+    "method": "POST",
+    "upstream_path": "/admin/revoke",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "cert_id": "PASTE_CERTIFICATE_ID",
+      "reason": "cessation_of_operation"
+    }
+  },
+  {
+    "id": "admin-revoke-operator-key",
+    "group": "administration",
+    "name": "Revoke operator key",
+    "description": "Switch an operator key off without restarting the service (F-21).",
+    "method": "POST",
+    "upstream_path": "/admin/operator-keys/{key_id}/revoke",
+    "admin": true,
+    "parameters": [
+      "key_id"
+    ],
+    "query": [],
+    "body": {
+      "reason": "cessation_of_operation"
+    }
+  },
+  {
+    "id": "agreement-build-offer-route",
+    "group": "agreement",
+    "name": "Build offer",
+    "description": "Build and sign a CapabilityOffer as the NA sovereign.",
+    "method": "POST",
+    "upstream_path": "/admin/agreements/offer",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "responder_sovereign_id": "sovereign-b",
+      "capabilities": [
+        "read",
+        "write"
+      ],
+      "scope": {},
+      "valid_from": "2026-06-01T00:00:00Z",
+      "valid_until": "2026-06-02T00:00:00Z",
+      "expires_at": "2026-06-01T01:00:00Z"
+    }
+  },
+  {
+    "id": "agreement-build-counter-route",
+    "group": "agreement",
+    "name": "Build counter",
+    "description": "Build and sign a CapabilityCounter in response to an existing offer.",
+    "method": "POST",
+    "upstream_path": "/admin/agreements/counter",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "offer": {
+        "<CapabilityOffer>": "..."
+      },
+      "capabilities": [
+        "read"
+      ],
+      "scope": {},
+      "valid_from": "2026-06-01T00:00:00Z",
+      "valid_until": "2026-06-01T12:00:00Z"
+    }
+  },
+  {
+    "id": "agreement-accept-route",
+    "group": "agreement",
+    "name": "Accept",
+    "description": "Accept an offer or counter-offer, producing a signed AgreementRecord.",
+    "method": "POST",
+    "upstream_path": "/admin/agreements/accept",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "offer": {
+        "<CapabilityOffer>": "..."
+      }
+    }
+  },
+  {
+    "id": "agreement-verify-route",
+    "group": "agreement",
+    "name": "Verify",
+    "description": "Verify a signed AgreementRecord without storing it.",
+    "method": "POST",
+    "upstream_path": "/agreements/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "agreement": {
+        "<AgreementRecord>": "..."
+      },
+      "offerer_public_keys": [
+        "<base64-ed25519>"
+      ],
+      "responder_public_keys": [
+        "<base64-ed25519>"
+      ]
+    }
+  },
+  {
+    "id": "attestations-issue-attestation",
+    "group": "attestations",
+    "name": "Issue attestation",
+    "description": "Issue a signed membership attestation for a subject.",
+    "method": "POST",
+    "upstream_path": "/admin/attestations",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "subject_id": "gateway-demo-subject",
+      "roles": [
+        "role:client"
+      ],
+      "validity_hours": 1
+    }
+  },
+  {
+    "id": "attestations-revoke-attestation",
+    "group": "attestations",
+    "name": "Revoke attestation",
+    "description": "Revoke an issued membership attestation.",
+    "method": "POST",
+    "upstream_path": "/admin/attestations/{attestation_id}/revoke",
+    "admin": true,
+    "parameters": [
+      "attestation_id"
+    ],
+    "query": [],
+    "body": {
+      "reason": "cessation_of_operation"
+    }
+  },
+  {
+    "id": "attestations-save-recognition-policy",
+    "group": "attestations",
+    "name": "Save recognition policy",
+    "description": "Persist the local recognition policy used by attestation verification.",
+    "method": "POST",
+    "upstream_path": "/admin/recognition-policy",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "recognition_policy": {
+        "local_sovereign_id": "authority-a",
+        "recognized_issuers": []
+      }
+    }
+  },
+  {
+    "id": "attestations-get-recognition-policy",
+    "group": "attestations",
+    "name": "Get recognition policy",
+    "description": "Return the active local recognition policy, if configured.",
+    "method": "GET",
+    "upstream_path": "/recognition-policy",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "attestations-get-attestation",
+    "group": "attestations",
+    "name": "Get attestation",
+    "description": "Return a persisted membership attestation by ID.",
+    "method": "GET",
+    "upstream_path": "/attestations/{attestation_id}",
+    "admin": false,
+    "parameters": [
+      "attestation_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "attestations-list-attestations",
+    "group": "attestations",
+    "name": "List attestations",
+    "description": "List persisted membership attestations.",
+    "method": "GET",
+    "upstream_path": "/attestations",
+    "admin": false,
+    "parameters": [],
+    "query": [
+      "issuer_sovereign_id",
+      "status",
+      "subject_id"
+    ],
+    "body": null
+  },
+  {
+    "id": "attestations-sovereign-revocation-feed",
+    "group": "attestations",
+    "name": "Sovereign revocation feed",
+    "description": "Publish a signed feed of revoked membership attestations.",
+    "method": "GET",
+    "upstream_path": "/sovereign-revocation-feed",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "attestations-verify-attestation",
+    "group": "attestations",
+    "name": "Verify attestation",
+    "description": "Verify a membership attestation against a local recognition policy.",
+    "method": "POST",
+    "upstream_path": "/attestations/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "attestation": {},
+      "recognition_policy": {
+        "local_sovereign_id": "authority-a",
+        "recognized_issuers": [
+          {
+            "sovereign_id": "authority-a",
+            "public_keys": [
+              "PASTE_AUTHORITY_PUBLIC_KEY"
+            ],
+            "allowed_roles": [
+              "role:client"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "id": "boundary-decide",
+    "group": "boundary",
+    "name": "Decide",
+    "description": "Evaluate a ContextRecord against an AgreementRecord and sign the decision.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary/decide",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "agreement": {
+        "<AgreementRecord>": "..."
+      },
+      "requested_capability": "read",
+      "context": {
+        "requester_sovereign_id": "sovereign-b",
+        "request_parameters": {}
+      }
+    }
+  },
+  {
+    "id": "boundary-verify",
+    "group": "boundary",
+    "name": "Verify",
+    "description": "Verify a signed BoundaryDecision.",
+    "method": "POST",
+    "upstream_path": "/boundary/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "decision": {
+        "<BoundaryDecision>": "..."
+      },
+      "operator_public_keys": [
+        "<base64-ed25519>"
+      ]
+    }
+  },
+  {
+    "id": "consensus-vote",
+    "group": "consensus",
+    "name": "Vote",
+    "description": "Cast a ValidatorVote signed by the NA as validator.",
+    "method": "POST",
+    "upstream_path": "/admin/consensus/vote",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "justification_proof": {
+        "<JustificationProof>": "..."
+      },
+      "vote": true,
+      "reason": "decision aligns with recognition policy"
+    }
+  },
+  {
+    "id": "consensus-proof",
+    "group": "consensus",
+    "name": "Proof",
+    "description": "Assemble a ConsensusProof from votes, signed by the NA as assembler.",
+    "method": "POST",
+    "upstream_path": "/admin/consensus/proof",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "justification_proof": {
+        "<JustificationProof>": "..."
+      },
+      "votes": [
+        {
+          "<ValidatorVote>": "..."
+        }
+      ],
+      "required_threshold": 2,
+      "validator_sovereign_ids": [
+        "na-1",
+        "na-2"
+      ]
+    }
+  },
+  {
+    "id": "consensus-verify",
+    "group": "consensus",
+    "name": "Verify",
+    "description": "Verify a ConsensusProof signature and threshold.",
+    "method": "POST",
+    "upstream_path": "/consensus/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "proof": {
+        "<ConsensusProof>": "..."
+      },
+      "validator_public_keys": {
+        "validator-1": "<base64>",
+        "validator-2": "<base64>"
+      },
+      "assembler_public_keys": [
+        "<base64-ed25519>"
+      ]
+    }
+  },
+  {
+    "id": "crl-get-crl",
+    "group": "network",
+    "name": "Get crl",
+    "description": "Return the active signed certificate revocation list.",
+    "method": "GET",
+    "upstream_path": "/crl",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "data_usage-create-policy",
+    "group": "data_usage",
+    "name": "Create policy",
+    "description": "Create and sign a DataLicensePolicy as licensor (NA).",
+    "method": "POST",
+    "upstream_path": "/admin/data-usage/policy",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "licensee_sovereign_id": "sovereign-b",
+      "allowed_source_ids": [
+        "src-1"
+      ],
+      "allowed_access_types": [
+        "read"
+      ],
+      "max_volume_bytes_per_session": null,
+      "prohibited_classification_tags": [],
+      "valid_from": "2026-06-01T00:00:00Z",
+      "valid_until": "2026-12-31T00:00:00Z"
+    }
+  },
+  {
+    "id": "data_usage-create-intent",
+    "group": "data_usage",
+    "name": "Create intent",
+    "description": "Create and sign a DataAccessIntent as agent (NA).",
+    "method": "POST",
+    "upstream_path": "/admin/data-usage/intent",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "sources": [
+        {
+          "source_id": "src-1",
+          "source_type": "database",
+          "owner_sovereign_id": "TEST",
+          "classification_tags": []
+        }
+      ],
+      "access_types": [
+        "read"
+      ],
+      "decision_id": "dec-001",
+      "estimated_volume_bytes": 1048576
+    }
+  },
+  {
+    "id": "data_usage-get-policy",
+    "group": "data_usage",
+    "name": "Get policy",
+    "description": "Return the currently active DataLicensePolicy.",
+    "method": "GET",
+    "upstream_path": "/data-usage/policy",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "data_usage-verify",
+    "group": "data_usage",
+    "name": "Verify",
+    "description": "Verify a DataAccessIntent against a DataLicensePolicy.",
+    "method": "POST",
+    "upstream_path": "/data-usage/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "intent": {
+        "<DataAccessIntent>": "..."
+      },
+      "policy": {
+        "<DataLicensePolicy>": "..."
+      },
+      "agent_public_keys": [
+        "<base64-ed25519>"
+      ]
+    }
+  },
+  {
+    "id": "disclosure-commit",
+    "group": "disclosure",
+    "name": "Commit",
+    "description": "Commit to a list of capabilities under an AgreementRecord, signed by the NA.",
+    "method": "POST",
+    "upstream_path": "/admin/disclosure/commit",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "capabilities": [
+        "read",
+        "write"
+      ],
+      "agreement": {
+        "<AgreementRecord>": "..."
+      }
+    }
+  },
+  {
+    "id": "disclosure-nullifier",
+    "group": "disclosure",
+    "name": "Nullifier",
+    "description": "Issue a one-time nullifier for a capability membership proof, signed by the NA.",
+    "method": "POST",
+    "upstream_path": "/admin/disclosure/nullifier",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "proof": {
+        "<CapabilityMembershipProof>": "..."
+      }
+    }
+  },
+  {
+    "id": "disclosure-prove",
+    "group": "disclosure",
+    "name": "Prove",
+    "description": "Generate a Merkle membership proof from caller-supplied data (no NA state used).",
+    "method": "POST",
+    "upstream_path": "/disclosure/prove",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "capability": "read",
+      "capabilities": [
+        "read",
+        "write"
+      ],
+      "commitment": {
+        "<CapabilityCommitment>": "..."
+      },
+      "prover_sovereign_id": "sovereign-b"
+    }
+  },
+  {
+    "id": "disclosure-verify",
+    "group": "disclosure",
+    "name": "Verify",
+    "description": "Verify a CapabilityMembershipProof against its commitment.",
+    "method": "POST",
+    "upstream_path": "/disclosure/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "proof": {
+        "<CapabilityMembershipProof>": "..."
+      },
+      "commitment": {
+        "<CapabilityCommitment>": "..."
+      },
+      "issuer_public_keys": [
+        "<base64-ed25519>"
+      ]
+    }
+  },
+  {
+    "id": "discovery-register-agent",
+    "group": "discovery",
+    "name": "Register agent",
+    "description": "Register or refresh a signed AgentDescriptor.",
+    "method": "POST",
+    "upstream_path": "/agents",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "agent_id": "gateway-demo-agent",
+      "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+      "network_name": "authority-a",
+      "capabilities": [
+        "read"
+      ],
+      "endpoint": {
+        "host": "agent.example.org",
+        "port": 443,
+        "scheme": "wss"
+      },
+      "registered_at": "NOW",
+      "metadata": {},
+      "expires_at": "FUTURE_TIMESTAMP",
+      "signatures": []
+    }
+  },
+  {
+    "id": "discovery-list-agents",
+    "group": "discovery",
+    "name": "List agents",
+    "description": "Discover agents by capability. The unfiltered form returns counts only.",
+    "method": "GET",
+    "upstream_path": "/agents",
+    "admin": false,
+    "parameters": [],
+    "query": [
+      "capability"
+    ],
+    "body": null
+  },
+  {
+    "id": "discovery-get-agent",
+    "group": "discovery",
+    "name": "Get agent",
+    "description": "Return one registration.",
+    "method": "GET",
+    "upstream_path": "/agents/{node_public_key}",
+    "admin": false,
+    "parameters": [
+      "node_public_key"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "discovery-delete-agent",
+    "group": "discovery",
+    "name": "Delete agent",
+    "description": "Voluntary deregistration. Requires a signed envelope.",
+    "method": "DELETE",
+    "upstream_path": "/agents/{node_public_key}",
+    "admin": false,
+    "parameters": [
+      "node_public_key"
+    ],
+    "query": [],
+    "body": {
+      "version": "1",
+      "signed_at": "NOW",
+      "signature": "PASTE_NODE_SIGNATURE"
+    }
+  },
+  {
+    "id": "enrollment-request-join",
+    "group": "enrollment",
+    "name": "Request join",
+    "description": "Issue a join certificate using a persisted invite token.",
+    "method": "POST",
+    "upstream_path": "/join",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "invite_token": "PASTE_INVITE_TOKEN",
+      "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+      "timestamp": "NOW",
+      "nonce": "UNIQUE_NONCE",
+      "signature": "PASTE_NODE_SIGNATURE"
+    }
+  },
+  {
+    "id": "enrollment-heartbeat",
+    "group": "enrollment",
+    "name": "Heartbeat",
+    "description": "Receive a signed heartbeat from an enrolled node.",
+    "method": "POST",
+    "upstream_path": "/heartbeat",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "cert_id": "PASTE_CERTIFICATE_ID",
+      "status": "active",
+      "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+      "timestamp": "NOW",
+      "nonce": "UNIQUE_NONCE",
+      "signature": "PASTE_NODE_SIGNATURE"
+    }
+  },
+  {
+    "id": "enrollment-renew-certificate",
+    "group": "enrollment",
+    "name": "Renew certificate",
+    "description": "Renew a node certificate while preserving server-side roles.",
+    "method": "POST",
+    "upstream_path": "/renew",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "cert_id": "PASTE_CERTIFICATE_ID",
+      "validity_hours": 1,
+      "node_public_key": "PASTE_NODE_PUBLIC_KEY",
+      "timestamp": "NOW",
+      "nonce": "UNIQUE_NONCE",
+      "signature": "PASTE_NODE_SIGNATURE"
+    }
+  },
+  {
+    "id": "evidence-build",
+    "group": "evidence",
+    "name": "Build",
+    "description": "Sign a TrustEvidence record from a TrustDecision.",
+    "method": "POST",
+    "upstream_path": "/admin/trust-evidence",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "decision": {
+        "source_sovereign_id": "TEST",
+        "target_sovereign_id": "sovereign-b",
+        "verdict": "allow",
+        "reason": "direct recognition",
+        "requested_roles": [],
+        "trusted": true,
+        "trust_path": [],
+        "hop_count": 0,
+        "signals": [],
+        "evaluated_at": "2026-06-01T00:00:00Z"
+      },
+      "graph_digest": "<optional-sha256-hex>"
+    }
+  },
+  {
+    "id": "evidence-verify",
+    "group": "evidence",
+    "name": "Verify",
+    "description": "Verify a TrustEvidence signature and optional graph digest.",
+    "method": "POST",
+    "upstream_path": "/trust-evidence/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "evidence": {
+        "<TrustEvidence>": "..."
+      },
+      "issuer_public_keys": [
+        "<base64-ed25519>"
+      ],
+      "expected_graph_digest": "<optional-sha256-hex>"
+    }
+  },
+  {
+    "id": "health-health",
+    "group": "network",
+    "name": "Health",
+    "description": "Return legacy health metadata.",
+    "method": "GET",
+    "upstream_path": "/health",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "health-readyz",
+    "group": "network",
+    "name": "Readyz",
+    "description": "Return readiness after checking DB, genesis, and NA key state.",
+    "method": "GET",
+    "upstream_path": "/readyz",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "health-list-nodes",
+    "group": "network",
+    "name": "List nodes",
+    "description": "Return the active node count; the full roster requires operator auth.",
+    "method": "GET",
+    "upstream_path": "/nodes",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "public-dashboard-json",
+    "group": "network",
+    "name": "Dashboard json",
+    "description": "Return machine-readable dashboard state.",
+    "method": "GET",
+    "upstream_path": "/dashboard.json",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "public-atlas-json",
+    "group": "network",
+    "name": "Atlas json",
+    "description": "Return machine-readable Atlas summary with graph digest.",
+    "method": "GET",
+    "upstream_path": "/atlas.json",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "public-get-genesis",
+    "group": "network",
+    "name": "Get genesis",
+    "description": "Return the genesis block.",
+    "method": "GET",
+    "upstream_path": "/genesis",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "public-sovereign-metadata",
+    "group": "network",
+    "name": "Sovereign metadata",
+    "description": "Return operator-safe public metadata for this sovereign.",
+    "method": "GET",
+    "upstream_path": "/sovereign.json",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "public-get-policy",
+    "group": "network",
+    "name": "Get policy",
+    "description": "Return the active signed policy manifest.",
+    "method": "GET",
+    "upstream_path": "/policy",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "treaties-issue-treaty",
+    "group": "treaties",
+    "name": "Issue treaty",
+    "description": "Issue a signed direct-recognition treaty for another sovereign.",
+    "method": "POST",
+    "upstream_path": "/admin/recognition-treaties",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "subject_sovereign_id": "authority-b",
+      "subject_public_keys": [
+        "PASTE_AUTHORITY_PUBLIC_KEY"
+      ],
+      "scope": {
+        "allowed_roles": [
+          "role:client"
+        ]
+      },
+      "validity_hours": 1
+    }
+  },
+  {
+    "id": "treaties-revoke-treaty",
+    "group": "treaties",
+    "name": "Revoke treaty",
+    "description": "Revoke a locally issued or imported recognition treaty.",
+    "method": "POST",
+    "upstream_path": "/admin/recognition-treaties/{treaty_id}/revoke",
+    "admin": true,
+    "parameters": [
+      "treaty_id"
+    ],
+    "query": [],
+    "body": {
+      "reason": "cessation_of_operation"
+    }
+  },
+  {
+    "id": "treaties-get-treaty",
+    "group": "treaties",
+    "name": "Get treaty",
+    "description": "Return a persisted recognition treaty by ID.",
+    "method": "GET",
+    "upstream_path": "/recognition-treaties/{treaty_id}",
+    "admin": false,
+    "parameters": [
+      "treaty_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "treaties-list-treaties",
+    "group": "treaties",
+    "name": "List treaties",
+    "description": "List persisted recognition treaties.",
+    "method": "GET",
+    "upstream_path": "/recognition-treaties",
+    "admin": false,
+    "parameters": [],
+    "query": [
+      "issuer_sovereign_id",
+      "status",
+      "subject_sovereign_id"
+    ],
+    "body": null
+  },
+  {
+    "id": "treaties-verify-treaty",
+    "group": "treaties",
+    "name": "Verify treaty",
+    "description": "Verify a signed recognition treaty.",
+    "method": "POST",
+    "upstream_path": "/recognition-treaties/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "treaty": {},
+      "issuer_public_keys": []
+    }
+  },
+  {
+    "id": "treaties-verify-attestation-with-treaty-route",
+    "group": "treaties",
+    "name": "Verify attestation with treaty",
+    "description": "Verify a membership attestation using a recognition treaty.",
+    "method": "POST",
+    "upstream_path": "/attestations/verify-with-treaty",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "attestation": {},
+      "treaty": {},
+      "issuer_public_keys": []
+    }
+  },
+  {
+    "id": "treaties-import-sovereign-revocation-feed",
+    "group": "treaties",
+    "name": "Import sovereign revocation feed",
+    "description": "Import a signed revocation feed from a recognized sovereign.",
+    "method": "POST",
+    "upstream_path": "/admin/sovereign-revocation-feeds/import",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "feed": {},
+      "issuer_public_keys": [
+        "PASTE_AUTHORITY_PUBLIC_KEY"
+      ]
+    }
+  },
+  {
+    "id": "treaties-recognition-graph",
+    "group": "treaties",
+    "name": "Recognition graph",
+    "description": "Export minimal sovereign recognition graph data.",
+    "method": "GET",
+    "upstream_path": "/recognition-graph",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "treaties-connectome-json",
+    "group": "treaties",
+    "name": "Connectome json",
+    "description": "Return an operator-facing Connectome view as JSON.",
+    "method": "GET",
+    "upstream_path": "/connectome.json",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "treaties-connectome-trust-path",
+    "group": "treaties",
+    "name": "Connectome trust path",
+    "description": "Explain whether one sovereign currently recognizes another.",
+    "method": "GET",
+    "upstream_path": "/connectome/trust-path",
+    "admin": false,
+    "parameters": [],
+    "query": [
+      "from",
+      "source",
+      "target",
+      "to"
+    ],
+    "body": null
+  }
+]
