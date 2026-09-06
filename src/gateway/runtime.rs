@@ -96,6 +96,9 @@ fn route_label(path: &str) -> &'static str {
         "/verify/batch" => "/verify/batch",
         "/keygen" => "/keygen",
         "/issue" => "/issue",
+        path if path.starts_with("/v1/networks/") && path.contains("/services/") => {
+            "/v1/networks/{network}/services/{operation}"
+        }
         _ => "unmatched",
     }
 }

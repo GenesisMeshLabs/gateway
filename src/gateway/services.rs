@@ -39,6 +39,7 @@ pub(super) async fn catalog() -> Json<Value> {
 pub(super) async fn execute(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(facts): Extension<super::runtime::AuditFacts>,
     Path((network, operation)): Path<(String, String)>,
     Query(query): Query<BTreeMap<String, String>>,
     method: Method,
@@ -64,6 +65,10 @@ pub(super) async fn execute(
         .iter()
         .find(|o| o.id == operation)
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "unknown service operation".into()))?;
+    if let Ok(mut context) = facts.0.lock() {
+        context.insert("network".into(), json!(network));
+        context.insert("operation".into(), json!(op.id));
+    }
     if method.as_str() != op.method {
         return Err(ApiError(
             StatusCode::METHOD_NOT_ALLOWED,
