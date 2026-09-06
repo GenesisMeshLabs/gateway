@@ -32,7 +32,33 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.0, Json(json!({ "error": self.1 }))).into_response()
+        let code = match self.0 {
+            StatusCode::BAD_REQUEST => "invalid_request",
+            StatusCode::UNAUTHORIZED => "unauthorized",
+            StatusCode::FORBIDDEN => "forbidden",
+            StatusCode::TOO_MANY_REQUESTS => "rate_limited",
+            StatusCode::SERVICE_UNAVAILABLE => "unavailable",
+            _ => "internal_error",
+        };
+        let message = if self.0.is_server_error() {
+            "request could not be completed".to_string()
+        } else {
+            self.1
+        };
+        let mut response =
+            (self.0, Json(json!({ "error": message, "code": code }))).into_response();
+        if self.0 == StatusCode::UNAUTHORIZED {
+            response.headers_mut().insert(
+                "www-authenticate",
+                axum::http::HeaderValue::from_static("Bearer"),
+            );
+        }
+        if self.0 == StatusCode::TOO_MANY_REQUESTS || self.0 == StatusCode::SERVICE_UNAVAILABLE {
+            response
+                .headers_mut()
+                .insert("retry-after", axum::http::HeaderValue::from_static("60"));
+        }
+        response
     }
 }
 

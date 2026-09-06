@@ -9,16 +9,21 @@ pub enum Error {
     /// A key, signature, or seed was not valid base64.
     #[error("invalid base64 in {field}: {source}")]
     Base64 {
+        /// Input field associated with the failure.
         field: &'static str,
         #[source]
+        /// Underlying decoding error.
         source: base64::DecodeError,
     },
 
     /// Decoded bytes were the wrong length for their purpose.
     #[error("{field} must be {expected} bytes, got {actual}")]
     KeyLength {
+        /// Input field associated with the failure.
         field: &'static str,
+        /// Required byte length.
         expected: usize,
+        /// Observed byte length.
         actual: usize,
     },
 
@@ -32,7 +37,10 @@ pub enum Error {
 
     /// Canonicalisation was asked to exclude keys from a non-object.
     #[error("canonical form requires a JSON object, found {found}")]
-    NotAnObject { found: &'static str },
+    NotAnObject {
+        /// Observed JSON type.
+        found: &'static str,
+    },
 
     /// Filesystem access failed.
     #[error("io error: {0}")]

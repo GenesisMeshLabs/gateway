@@ -1,7 +1,11 @@
 target/
+dist/
 .git/
 **/*.key
 **/*.pub
 cloudflared/credentials.json
 cloudflared/*.json
 .env
+
+.local
+*.log

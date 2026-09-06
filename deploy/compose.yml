@@ -1,0 +1,30 @@
+name: genesis-mesh-gateway
+services:
+  gateway:
+    # Supply an immutable image digest from your organization's registry.
+    image: ${GATEWAY_IMAGE:?Set GATEWAY_IMAGE to your gateway image digest}
+    restart: unless-stopped
+    environment:
+      GATEWAY_ADDR: 0.0.0.0:8080
+      GATEWAY_POLICY_FILE: /run/gateway/policy.json
+      GATEWAY_MAX_INFLIGHT: "32"
+      GATEWAY_CPU_WORKERS: "2"
+      GATEWAY_MAX_BATCH_JOBS: "1"
+      GATEWAY_MAX_BATCH: "128"
+      TOKIO_WORKER_THREADS: "2"
+      TOKIO_MAX_BLOCKING_THREADS: "16"
+      RUST_LOG: info
+    volumes:
+      - ${GATEWAY_POLICY_FILE:?Set GATEWAY_POLICY_FILE to an absolute policy path}:/run/gateway/policy.json:ro
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 2
+    stop_grace_period: 40s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "5"}

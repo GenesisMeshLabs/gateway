@@ -95,7 +95,9 @@ fn rust_reproduces_python_signatures() {
 /// Rust node has held it in its own types.
 #[test]
 fn round_trip_through_rust_types_preserves_signatures() {
-    use genesis_mesh::models::{CertificateRevocationList, JoinCertificate, ServiceManifest, Signed};
+    use genesis_mesh::models::{
+        CertificateRevocationList, JoinCertificate, ServiceManifest, Signed,
+    };
 
     let v = vectors();
     let public_key = v["public_key_b64"].as_str().unwrap();
@@ -110,17 +112,17 @@ fn round_trip_through_rust_types_preserves_signatures() {
         // Attach Python's signature to the Rust-parsed document, then confirm
         // the signing input we compute still matches what Python signed.
         let recomputed = if name.starts_with("join_certificate") {
-            let mut doc: JoinCertificate = serde_json::from_str(payload)
-                .unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
+            let mut doc: JoinCertificate =
+                serde_json::from_str(payload).unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
             doc.signatures.clear();
             doc.signing_input().unwrap()
         } else if name == "service_manifest" {
-            let doc: ServiceManifest = serde_json::from_str(payload)
-                .unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
+            let doc: ServiceManifest =
+                serde_json::from_str(payload).unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
             doc.signing_input().unwrap()
         } else if name == "crl" {
-            let doc: CertificateRevocationList = serde_json::from_str(payload)
-                .unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
+            let doc: CertificateRevocationList =
+                serde_json::from_str(payload).unwrap_or_else(|e| panic!("case {name}: parse: {e}"));
             doc.signing_input().unwrap()
         } else {
             panic!("case {name}: no Rust type mapped; add one to this test");

@@ -7,10 +7,11 @@
 //! revoked one needs the node removed. So [`Decision`] carries every reason it
 //! failed, and all checks run rather than short-circuiting on the first.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
 
+use crate::crypto::CachedPublicKey;
 use crate::error::Result;
 use crate::models::{CertificateRevocationList, JoinCertificate, Signed};
 
@@ -29,17 +30,38 @@ pub enum Reason {
     /// No attached signature came from a key in the anchor set.
     NoTrustedIssuer,
     /// The named key is not a trust anchor for this verifier.
-    UnknownIssuer { key_id: String },
+    UnknownIssuer {
+        /// Unrecognized signing identity.
+        key_id: String,
+    },
     /// The key is an anchor, but its signature did not verify.
-    BadSignature { key_id: String },
+    BadSignature {
+        /// Signing identity whose signature failed.
+        key_id: String,
+    },
     /// Presented before its validity window opened.
-    NotYetValid { issued_at: DateTime<Utc> },
+    NotYetValid {
+        /// Start of certificate validity.
+        issued_at: DateTime<Utc>,
+    },
     /// Presented after its validity window closed.
-    Expired { expires_at: DateTime<Utc> },
+    Expired {
+        /// End of certificate validity.
+        expires_at: DateTime<Utc>,
+    },
     /// Named in a revocation list.
-    Revoked { reason: String },
+    Revoked {
+        /// Signed issuer-provided reason.
+        reason: String,
+    },
     /// A revocation list was supplied but was not itself trustworthy.
     UntrustedRevocationList,
+    /// Revocation information is outside its validity interval.
+    StaleRevocationList,
+    /// Certificate validity interval is empty or reversed.
+    InvalidValidityWindow,
+    /// No valid signature from the explicitly required issuer.
+    IssuerSignatureMissing,
 }
 
 /// The outcome of evaluating a certificate.
@@ -68,6 +90,14 @@ pub struct Policy<'a> {
     pub now: DateTime<Utc>,
     /// Optional revocation list to consult.
     pub crl: Option<&'a CertificateRevocationList>,
+    /// Skip CRL signature verification when the snapshot was authenticated at ingest.
+    pub crl_preverified: bool,
+    /// Optional issuer binding enforced during the existing signature pass.
+    pub required_issuer: Option<&'a str>,
+    /// First-entry index from an authenticated revocation snapshot.
+    pub revoked_index: Option<&'a HashMap<String, usize>>,
+    /// Pre-parsed authority keys; when set, verification does not re-decode anchors.
+    pub verifying_keys: Option<&'a HashMap<String, CachedPublicKey>>,
 }
 
 impl<'a> Policy<'a> {
@@ -77,6 +107,10 @@ impl<'a> Policy<'a> {
             anchors,
             now: Utc::now(),
             crl: None,
+            crl_preverified: false,
+            required_issuer: None,
+            revoked_index: None,
+            verifying_keys: None,
         }
     }
 
@@ -96,12 +130,10 @@ impl<'a> Policy<'a> {
 /// Evaluate a join certificate against a policy.
 ///
 /// All independent checks run so the caller sees the full picture in one pass.
-pub fn verify_join_certificate(
-    cert: &JoinCertificate,
-    policy: &Policy<'_>,
-) -> Result<Decision> {
+pub fn verify_join_certificate(cert: &JoinCertificate, policy: &Policy<'_>) -> Result<Decision> {
     let mut reasons = Vec::new();
 
+    let mut issuer_verified = false;
     // --- issuer signature ------------------------------------------------
     if cert.signatures().is_empty() {
         reasons.push(Reason::NoSignatures);
@@ -114,8 +146,19 @@ pub fn verify_join_certificate(
                     key_id: signature.key_id.clone(),
                 }),
                 Some(public_key) => {
-                    if crate::crypto::verify_b64(payload.as_bytes(), &signature.sig, public_key)? {
+                    let verified = if let Some(key) = policy
+                        .verifying_keys
+                        .and_then(|keys| keys.get(&signature.key_id))
+                    {
+                        key.verify(payload.as_bytes(), &signature.sig)?
+                    } else {
+                        crate::crypto::verify_b64(payload.as_bytes(), &signature.sig, public_key)?
+                    };
+                    if verified {
                         trusted_signature = true;
+                        if policy.required_issuer == Some(signature.key_id.as_str()) {
+                            issuer_verified = true;
+                        }
                     } else {
                         reasons.push(Reason::BadSignature {
                             key_id: signature.key_id.clone(),
@@ -129,14 +172,28 @@ pub fn verify_join_certificate(
         }
     }
 
+    if policy.required_issuer.is_some() && !issuer_verified {
+        reasons.push(Reason::IssuerSignatureMissing);
+    }
     // --- validity window --------------------------------------------------
     let skew = chrono::Duration::minutes(crate::models::CLOCK_SKEW_MINUTES);
-    if policy.now < cert.issued_at - skew {
+    if cert.issued_at >= cert.expires_at {
+        reasons.push(Reason::InvalidValidityWindow);
+    }
+    if cert
+        .issued_at
+        .checked_sub_signed(skew)
+        .is_none_or(|start| policy.now < start)
+    {
         reasons.push(Reason::NotYetValid {
             issued_at: cert.issued_at,
         });
     }
-    if policy.now > cert.expires_at + skew {
+    if cert
+        .expires_at
+        .checked_add_signed(skew)
+        .is_none_or(|end| policy.now > end)
+    {
         reasons.push(Reason::Expired {
             expires_at: cert.expires_at,
         });
@@ -147,15 +204,28 @@ pub fn verify_join_certificate(
     // untrusted CRL must not be able to revoke anything, or anyone who can
     // hand us a file could evict arbitrary nodes.
     if let Some(crl) = policy.crl {
+        if crl.issued_at > policy.now || policy.now >= crl.next_update {
+            reasons.push(Reason::StaleRevocationList);
+        }
         // A malformed signature on the CRL is not a hard error — it just means
         // the list is not trustworthy, exactly like an absent signature.
-        let crl_trusted = match policy.anchors.get(&crl.issuer) {
-            Some(public_key) => crl.verify_any(public_key).unwrap_or(false),
-            None => false,
+        // Production snapshots are authenticated at ingest; do not re-canonicalize.
+        let crl_trusted = if policy.crl_preverified {
+            true
+        } else {
+            match policy.anchors.get(&crl.issuer) {
+                Some(public_key) => crl.verify_any(public_key).unwrap_or(false),
+                None => false,
+            }
         };
         if !crl_trusted {
             reasons.push(Reason::UntrustedRevocationList);
-        } else if let Some(entry) = crl.find(&cert.cert_id) {
+        } else if let Some(entry) = match policy.revoked_index {
+            Some(index) => index
+                .get(&cert.cert_id)
+                .and_then(|i| crl.revoked_certificates.get(*i)),
+            None => crl.find(&cert.cert_id),
+        } {
             reasons.push(Reason::Revoked {
                 reason: entry.reason.clone(),
             });
@@ -240,7 +310,10 @@ mod tests {
         let later = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
         let decision = verify_join_certificate(&cert, &Policy::new(&anchors).at(later)).unwrap();
         assert!(!decision.trusted);
-        assert!(decision.reasons.iter().any(|r| matches!(r, Reason::Expired { .. })));
+        assert!(decision
+            .reasons
+            .iter()
+            .any(|r| matches!(r, Reason::Expired { .. })));
     }
 
     #[test]
@@ -300,6 +373,9 @@ mod tests {
         assert!(!decision.trusted);
         assert!(decision.reasons.contains(&Reason::UntrustedRevocationList));
         // Crucially, it did NOT accept the forged revocation as authoritative.
-        assert!(!decision.reasons.iter().any(|r| matches!(r, Reason::Revoked { .. })));
+        assert!(!decision
+            .reasons
+            .iter()
+            .any(|r| matches!(r, Reason::Revoked { .. })));
     }
 }

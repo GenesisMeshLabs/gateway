@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: genesis-mesh-gateway
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  progressDeadlineSeconds: 180
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: genesis-mesh-gateway}
+  template:
+    metadata:
+      labels: {app: genesis-mesh-gateway}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 40
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app: genesis-mesh-gateway}
+          minDomains: 2
+      containers:
+        - name: gateway
+          # Replace with your registry digest before applying.
+          image: registry.example.org/genesis-mesh-gateway:REPLACE_WITH_DIGEST
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - {name: GATEWAY_ADDR, value: "0.0.0.0:8080"}
+            - {name: GATEWAY_POLICY_FILE, value: /run/gateway/policy.json}
+            - {name: GATEWAY_MAX_INFLIGHT, value: "32"}
+            - {name: GATEWAY_CPU_WORKERS, value: "2"}
+            - {name: GATEWAY_MAX_BATCH_JOBS, value: "1"}
+            - {name: GATEWAY_MAX_BATCH, value: "128"}
+            - {name: TOKIO_WORKER_THREADS, value: "2"}
+            - {name: TOKIO_MAX_BLOCKING_THREADS, value: "16"}
+            - {name: RUST_LOG, value: info}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: "1", memory: 128Mi}
+            limits: {cpu: "2", memory: 512Mi}
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 3
+          volumeMounts:
+            - {name: policy, mountPath: /run/gateway, readOnly: true}
+      volumes:
+        - name: policy
+          secret:
+            secretName: gateway-policy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: genesis-mesh-gateway
+spec:
+  selector: {app: genesis-mesh-gateway}
+  ports: [{name: http, port: 8080, targetPort: http}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: genesis-mesh-gateway
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: genesis-mesh-gateway}

@@ -9,16 +9,20 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt; // `oneshot`
 
-const TOKEN: &str = "test-token";
+const TOKEN: &str = "test-token-with-at-least-32-bytes-long";
 
 fn app() -> axum::Router {
     router(Config {
+        development: true,
+        security: None,
         addr: "127.0.0.1:0".parse().unwrap(),
         token: Some(TOKEN.to_string()),
         timeout: Duration::from_secs(10),
         max_body_bytes: 1 << 20,
         max_inflight: 64,
         max_batch: 128,
+        cpu_workers: 1,
+        max_batch_jobs: 1,
     })
 }
 
@@ -129,7 +133,9 @@ async fn verify_wrong_anchor_is_untrusted() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["trusted"], false);
     let reasons = body["reasons"].as_array().unwrap();
-    assert!(reasons.iter().any(|r| r.as_str().unwrap().contains("BadSignature")));
+    assert!(reasons
+        .iter()
+        .any(|r| r.as_str().unwrap().contains("BadSignature")));
 }
 
 #[tokio::test]

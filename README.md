@@ -1,110 +1,80 @@
-# Genesis Mesh Gateway
+# Genesis Mesh Rust Gateway
 
-A concurrent HTTP gateway for **Genesis Mesh portable trust**, implemented in
-Rust. It embeds the trust core — Ed25519 identities, canonical JSON, signed join
-certificates, revocation, trust evaluation — and exposes it as a small JSON API
-that runs in a container behind a Cloudflare tunnel.
+A Rust trust-verification gateway built on Genesis Mesh portable trust. It serves
+an embedded API explorer, validates signed join certificates against operator
+policy, and synchronizes signed revocation snapshots from Genesis Mesh authorities.
 
-| Layer | What it is |
-|---|---|
-| `src/crypto`, `src/canonical`, `src/models`, `src/trust` | the portable-trust core — the bytes every participant must agree on |
-| `src/gateway` | the HTTP surface: router, middleware, handlers |
-| `src/main.rs` | the `genesis-mesh-gateway` binary |
-| `src/bin/genesis_mesh.rs` | the dependency-free `genesis-mesh` CLI, kept for shell use |
+**Live console:** https://mesh.genesismesh.org/
 
-It is **stateless** and holds no keys: `/issue` signs with the seed in the
-request body, exactly as `genesis-mesh issue --seed …` does.
+Production mode requires individually scoped service credentials and approved
+trust policy. It accepts no authority signing keys. The Python Genesis Mesh
+implementation remains the protocol authority; interoperability fixtures pin
+canonical JSON and signature compatibility.
+
+## Included
+
+- Per-client network authorization and request quotas.
+- Pinned Ed25519 authority keys, required roles, fresh signed CRLs and sequence checks.
+- Native Rust CRL refresh from configured authority endpoints every sixty seconds.
+- Cancellation-safe worker limits, bounded bodies/batches, request deadlines.
+- JSON audit logs, request correlation, Prometheus metrics and readiness probes.
+- Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
+- Non-root container with read-only filesystem and constrained resources.
 
 ## API
 
-| Method | Path | Auth | Body → Result |
-|--------|------|------|---------------|
-| GET | `/` | – | endpoint listing |
-| GET | `/health` | – | `{ "status": "ok" }` |
-| POST | `/keygen` | ✔ | – → `{ seed_b64, public_key_b64 }` |
-| POST | `/issue` | ✔ | `{ seed_b64, key_id, node_public_key, network_name, roles?, days? }` → the signed `JoinCertificate` |
-| POST | `/verify` | ✔ | `{ certificate, anchors: {key_id: pubkey_b64}, crl? }` → `{ trusted, reasons[] }` |
-| POST | `/verify/batch` | ✔ | `{ certificates[], anchors, crl? }` → `{ results[] }` — Rayon-parallel |
+| Method | Path | Access |
+| --- | --- | --- |
+| GET | `/` | Public console |
+| GET | `/api` | Public service metadata |
+| GET | `/openapi.json` | Public API specification |
+| GET | `/health` | Public liveness |
+| GET | `/ready` | Public trust readiness |
+| GET | `/v1/networks` | Client-authorized networks only |
+| GET | `/metrics` | Bearer token with metrics permission |
+| POST | `/verify` | Bearer token with certificate network permission |
+| POST | `/verify/batch` | Bearer token with every certificate network permission |
 
-Auth is `Authorization: Bearer <GATEWAY_TOKEN>` on every route except `/` and
-`/health`, active only while `GATEWAY_TOKEN` is set.
-
-### Concurrency model
-
-`#[tokio::main]` runs the multi-threaded work-stealing scheduler (one worker per
-core). Every handler moves its Ed25519 / canonical-JSON work onto
-`tokio::task::spawn_blocking`, so the async reactor is never blocked; `/verify/batch`
-fans a batch across the Rayon pool. A `tower` stack adds a per-request timeout,
-a request-body cap, and an in-flight limit that sheds with `503`.
-
-## Configuration
-
-| Env | Default | Meaning |
-|---|---|---|
-| `GATEWAY_ADDR` | `0.0.0.0:8080` | bind address |
-| `GATEWAY_TOKEN` | *(unset)* | bearer token; unset ⇒ no auth |
-| `GATEWAY_TIMEOUT_MS` | `15000` | per-request timeout |
-| `GATEWAY_MAX_BODY_BYTES` | `1048576` | max request body |
-| `GATEWAY_MAX_INFLIGHT` | `512` | concurrent requests before `503` |
-| `GATEWAY_MAX_BATCH` | `1024` | max certs per `/verify/batch` |
-| `RUST_LOG` | `info,tower_http=info` | tracing filter |
+Production verification bodies contain `certificate` or `certificates`; callers
+cannot override operator anchors or revocation data. Check `trusted` in each
+response, even when HTTP status is 200. Certificate verification does not prove
+private-key possession or authorize arbitrary application actions.
 
 ## Run
 
-```bash
-cargo test
-cargo run --bin genesis-mesh-gateway        # http://localhost:8080
+Provision the policy and credentials described in [operations](docs/operations.md).
+For Compose, place policy at `.local/policy.json`, which is excluded from Git
+and container build context. Then:
 
-# or in Docker
+```sh
 docker compose up --build -d gateway
-BASE=http://localhost:8080 TOKEN=$(grep -oP '(?<=GATEWAY_TOKEN=).*' .env) bash smoke.sh
 ```
 
-## Expose through a named Cloudflare tunnel
+The existing named tunnel configuration serves the same Rust process over HTTPS.
+To operate outside Docker, set `GATEWAY_POLICY_FILE` and run
+`cargo run --locked --bin genesis-mesh-gateway`. Default bind is loopback.
 
-One-time, on the host (needs a Cloudflare account with a zone):
+Local crypto utility mode requires `GATEWAY_DEVELOPMENT=true` and a
+`GATEWAY_TOKEN` of at least 32 bytes. Only this explicit mode enables `/keygen`
+and `/issue`; never use it for a public production service. The standalone
+`genesis-mesh` CLI remains available for local signing and interoperability work.
 
-```bash
-cloudflared tunnel login
-cloudflared tunnel create genesis-mesh-gateway
-cloudflared tunnel route dns genesis-mesh-gateway mesh.example.com
-bash cloudflared/finish-setup.sh mesh.example.com
+## Verify
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked --release --bin genesis-mesh-gateway
 ```
 
-`finish-setup.sh` stages the tunnel credentials into `cloudflared/`, renders
-`cloudflared/config.yml`, and runs `docker compose up -d` — starting the
-`cloudflared` connector alongside the gateway on one Docker network, serving
-`https://mesh.example.com` → `http://gateway:8080`. The gateway's own port is
-published only on `127.0.0.1`; the tunnel is the sole public path.
+See [the implemented improvement plan](docs/improvement-plan.md) and
+[deployment, security boundaries and remaining rollout gates](docs/operations.md).
+This implementation is not a government accreditation, compliance certification,
+or complete Genesis Mesh Network Authority.
 
-For a throwaway public URL with no account, use the quick-tunnel overlay:
+## Distribution and replicas
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.quick.yml up -d gateway cloudflared-quick
-docker compose -f docker-compose.yml -f docker-compose.quick.yml logs cloudflared-quick   # the *.trycloudflare.com URL
-```
-
-## Interoperability
-
-The Python implementation in `../genesismesh/` is the wire authority. Two details
-silently break every signature if wrong, and `src/canonical.rs` handles both:
-
-- **Canonical JSON escapes non-ASCII** as `\uXXXX` (Python's `ensure_ascii=True`),
-  with UTF-16 surrogate pairs above the BMP. `serde_json` emits raw UTF-8.
-- **Timestamps** render with either no fractional seconds
-  (`2026-01-01T12:00:00Z`) or exactly six digits
-  (`2026-01-08T12:30:45.500000Z`). Always `Z`.
-
-`tests/interop.rs` pins both against vectors from `tools/gen_vectors.py`.
-Regenerate them whenever the Python canonical form changes:
-
-```bash
-python tools/gen_vectors.py
-```
-
-## Next steps
-
-- Prometheus `/metrics`
-- per-token rate limiting + audit events (mirroring the Python Network Authority)
-- `POST /issue-crl` — sign a revocation list, not just join certificates
-- `criterion` throughput bench for `/verify/batch`
+See [distribution](docs/distribution.md) for portable images, checksummed binary
+bundles, configuration validation and Kubernetes rolling deployments. The
+`--check-config` command validates operator policy without starting the server.

@@ -10,7 +10,7 @@
 //!
 //! All base64 is standard alphabet **with** padding.
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{engine::general_purpose::STANDARD, DecodeSliceError, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 use crate::error::{Error, Result};
@@ -68,6 +68,32 @@ impl std::fmt::Debug for KeyPair {
     }
 }
 
+/// A parsed Ed25519 public key reused across many verifications.
+#[derive(Clone, Copy, Debug)]
+pub struct CachedPublicKey {
+    key: VerifyingKey,
+}
+
+impl CachedPublicKey {
+    /// Decode and reject structurally invalid or weak keys.
+    pub fn parse(public_key_b64: &str) -> Result<Self> {
+        let key_bytes = decode_fixed::<KEY_LEN>("public key", public_key_b64)?;
+        let key = VerifyingKey::from_bytes(&key_bytes)
+            .map_err(|e| Error::MalformedPublicKey(e.to_string()))?;
+        if key.is_weak() {
+            return Err(Error::MalformedPublicKey("weak Ed25519 public key".into()));
+        }
+        Ok(Self { key })
+    }
+
+    /// Verify a base64 detached signature without re-parsing the public key.
+    pub fn verify(&self, message: &[u8], signature_b64: &str) -> Result<bool> {
+        let sig_bytes = decode_fixed::<SIG_LEN>("signature", signature_b64)?;
+        let signature = Signature::from_bytes(&sig_bytes);
+        Ok(self.key.verify(message, &signature).is_ok())
+    }
+}
+
 /// Verify a base64 detached signature against a base64 public key.
 ///
 /// Returns `Ok(false)` for a well-formed but incorrect signature, and `Err` only
@@ -83,15 +109,32 @@ pub fn verify_b64(message: &[u8], signature_b64: &str, public_key_b64: &str) -> 
 }
 
 fn decode_fixed<const N: usize>(field: &'static str, value: &str) -> Result<[u8; N]> {
-    let bytes = STANDARD
-        .decode(value)
-        .map_err(|source| Error::Base64 { field, source })?;
-    let actual = bytes.len();
-    bytes.try_into().map_err(|_| Error::KeyLength {
-        field,
-        expected: N,
-        actual,
-    })
+    let mut out = [0u8; N];
+    match STANDARD.decode_slice(value, &mut out) {
+        Ok(n) if n == N => Ok(out),
+        Ok(actual) => Err(Error::KeyLength {
+            field,
+            expected: N,
+            actual,
+        }),
+        Err(DecodeSliceError::DecodeError(source)) => Err(Error::Base64 { field, source }),
+        Err(DecodeSliceError::OutputSliceTooSmall) => {
+            let actual = STANDARD.decode(value).map(|b| b.len()).unwrap_or(N + 1);
+            Err(Error::KeyLength {
+                field,
+                expected: N,
+                actual,
+            })
+        }
+    }
+}
+
+/// Validate an encoded Ed25519 public key without accepting weak keys.
+pub fn validate_public_key(value: &str) -> Result<bool> {
+    let bytes = decode_fixed::<KEY_LEN>("public key", value)?;
+    let key =
+        VerifyingKey::from_bytes(&bytes).map_err(|e| Error::MalformedPublicKey(e.to_string()))?;
+    Ok(!key.is_weak())
 }
 
 #[cfg(test)]

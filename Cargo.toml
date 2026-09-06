@@ -1,8 +1,8 @@
 [package]
 name = "genesis-mesh-gateway"
-version = "0.1.0"
+version = "0.56.0"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 license = "MIT"
 description = "Concurrent HTTP gateway for Genesis Mesh portable trust — Ed25519 identities, signed join certificates, revocation, and trust evaluation, implemented in Rust and exposed as a JSON API."
 repository = "https://github.com/GenesisMeshLabs/gateway"
@@ -21,7 +21,7 @@ path = "src/lib.rs"
 name = "genesis-mesh-gateway"
 path = "src/main.rs"
 
-# The dependency-free trust CLI is kept for shell use and cross-checking.
+# The local trust CLI is kept for shell use and cross-checking.
 [[bin]]
 name = "genesis-mesh"
 path = "src/bin/genesis_mesh.rs"
@@ -37,12 +37,17 @@ thiserror = "2"
 
 # Gateway layer.
 axum = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync", "time"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "timeout", "limit"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rayon = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+sha2 = "0.10"
+subtle = "2"
+uuid = { version = "1", features = ["v4"] }
+tracing-appender = "0.2"
+arc-swap = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [dev-dependencies]
 http-body-util = "0.1"

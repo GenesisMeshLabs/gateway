@@ -73,10 +73,7 @@ fn parse_flags(args: &[String]) -> Result<BTreeMap<String, Vec<String>>, String>
     Ok(out)
 }
 
-fn one<'a>(
-    flags: &'a BTreeMap<String, Vec<String>>,
-    key: &str,
-) -> Result<&'a String, String> {
+fn one<'a>(flags: &'a BTreeMap<String, Vec<String>>, key: &str) -> Result<&'a String, String> {
     flags
         .get(key)
         .and_then(|v| v.first())

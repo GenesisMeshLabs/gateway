@@ -27,10 +27,12 @@ pub fn format(dt: &DateTime<Utc>) -> String {
 pub mod py_datetime {
     use super::*;
 
+    /// Serialize in the Python reference timestamp format.
     pub fn serialize<S: Serializer>(dt: &DateTime<Utc>, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&super::format(dt))
     }
 
+    /// Parse the signed timestamp.
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DateTime<Utc>, D::Error> {
         let raw = String::deserialize(d)?;
         DateTime::parse_from_rfc3339(&raw)

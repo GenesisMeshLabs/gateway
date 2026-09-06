@@ -1,0 +1,45 @@
+name: Build distribution artifacts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  binaries:
+    strategy:
+      matrix:
+        include:
+          - {os: windows-latest, platform: windows-amd64, binary: genesis-mesh-gateway.exe}
+          - {os: ubuntu-24.04, platform: linux-amd64-glibc239, binary: genesis-mesh-gateway}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: cargo test --locked
+      - run: cargo build --locked --release --bin genesis-mesh-gateway
+      - run: python tools/package.py --binary target/release/${{ matrix.binary }} --platform ${{ matrix.platform }} --output dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          outputs: type=oci,dest=/tmp/gateway-oci.tar
+          sbom: true
+          provenance: mode=max
+      - run: cd /tmp && sha256sum gateway-oci.tar > gateway-oci.tar.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway-multiarch-oci
+          path: /tmp/gateway-oci.tar*
+          if-no-files-found: error

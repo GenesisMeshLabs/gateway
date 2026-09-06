@@ -41,9 +41,7 @@ pub fn to_canonical_json_excluding<T: Serialize + ?Sized>(
 ) -> Result<String> {
     let mut v = serde_json::to_value(value)?;
     let found = kind_of(&v);
-    let obj = v
-        .as_object_mut()
-        .ok_or(Error::NotAnObject { found })?;
+    let obj = v.as_object_mut().ok_or(Error::NotAnObject { found })?;
     for key in exclude {
         obj.remove(*key);
     }
@@ -104,6 +102,11 @@ fn write_value(value: &Value, out: &mut String) {
             out.push('}');
         }
     }
+}
+
+/// Write a JSON string literal using Python's `json.dumps` escaping rules.
+pub(crate) fn write_json_string(s: &str, out: &mut String) {
+    write_string(s, out);
 }
 
 /// Write a JSON string literal using Python's `json.dumps` escaping rules.
