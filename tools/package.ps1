@@ -17,7 +17,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive }
 $bundle = [IO.Compression.ZipFile]::Open($archive, [IO.Compression.ZipArchiveMode]::Create)
 try {
-    $files = @('README.md','docs/distribution.md','docs/operations.md','docs/services.md','docs/mesh.md','docs/federation.md','docs/platform.md','deploy/secrets-store-csi.yaml','tools/check_slo.mjs','ui/openapi.json','ui/services.json','deploy/compose.yml','deploy/kubernetes.yaml')
+    $files = @('README.md','docs/distribution.md','docs/operations.md','docs/services.md','docs/mesh.md','docs/federation.md','docs/platform.md','docs/improvement-plan.md','docs/adr/0001-deployment-authentication.md','deploy/secrets-store-csi.yaml','tools/check_slo.mjs','ui/openapi.json','ui/services.json','deploy/compose.yml','deploy/kubernetes.yaml')
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($bundle, $binaryPath, [IO.Path]::GetFileName($binaryPath)) | Out-Null
     $operatorName = if ($binaryPath.EndsWith('.exe')) { 'genesis-mesh-operator.exe' } else { 'genesis-mesh-operator' }
     $operatorPath = Join-Path (Split-Path $binaryPath -Parent) $operatorName
