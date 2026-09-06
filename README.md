@@ -31,11 +31,13 @@ Auth is `Authorization: Bearer <GATEWAY_TOKEN>` on every route except `/` and
 
 ### Concurrency model
 
-`#[tokio::main]` runs the multi-threaded work-stealing scheduler (one worker per
-core). Every handler moves its Ed25519 / canonical-JSON work onto
-`tokio::task::spawn_blocking`, so the async reactor is never blocked; `/verify/batch`
-fans a batch across the Rayon pool. A `tower` stack adds a per-request timeout,
-a request-body cap, and an in-flight limit that sheds with `503`.
+A sized multi-thread Tokio runtime (one worker per core, blocking pool capped
+by `GATEWAY_MAX_BATCH_INFLIGHT`) runs the server. Single-certificate routes
+(`/keygen`, `/issue`, `/verify`) run inline — one Ed25519 op is cheaper than a
+`spawn_blocking` handoff. `/verify/batch` decodes anchors and verifies the CRL
+once, then fans batches of 16+ across Rayon from a blocking worker. A `tower`
+stack adds a per-request timeout, a request-body cap, TCP_NODELAY, and inflight
+limits that shed with `503`. `/health` is excluded from the inflight cap.
 
 ## Configuration
 
@@ -45,9 +47,10 @@ a request-body cap, and an in-flight limit that sheds with `503`.
 | `GATEWAY_TOKEN` | *(unset)* | bearer token; unset ⇒ no auth |
 | `GATEWAY_TIMEOUT_MS` | `15000` | per-request timeout |
 | `GATEWAY_MAX_BODY_BYTES` | `1048576` | max request body |
-| `GATEWAY_MAX_INFLIGHT` | `512` | concurrent requests before `503` |
+| `GATEWAY_MAX_INFLIGHT` | `512` | concurrent authenticated requests before `503` |
 | `GATEWAY_MAX_BATCH` | `1024` | max certs per `/verify/batch` |
-| `RUST_LOG` | `info,tower_http=info` | tracing filter |
+| `GATEWAY_MAX_BATCH_INFLIGHT` | `4` | concurrent `/verify/batch` requests before `503` |
+| `RUST_LOG` | `info,tower_http=warn` | tracing filter |
 
 ## Run
 

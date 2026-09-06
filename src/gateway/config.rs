@@ -22,6 +22,9 @@ pub struct Config {
     /// Cap on certificates accepted by `POST /verify/batch`.
     /// `GATEWAY_MAX_BATCH`, default 1024.
     pub max_batch: usize,
+    /// Concurrent `/verify/batch` requests before new ones are shed with 503.
+    /// `GATEWAY_MAX_BATCH_INFLIGHT`, default 4.
+    pub max_batch_inflight: usize,
 }
 
 impl Config {
@@ -29,11 +32,14 @@ impl Config {
     pub fn from_env() -> Result<Self, String> {
         Ok(Self {
             addr: parse("GATEWAY_ADDR", "0.0.0.0:8080")?,
-            token: std::env::var("GATEWAY_TOKEN").ok().filter(|s| !s.is_empty()),
+            token: std::env::var("GATEWAY_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
             timeout: Duration::from_millis(parse("GATEWAY_TIMEOUT_MS", "15000")?),
             max_body_bytes: parse("GATEWAY_MAX_BODY_BYTES", "1048576")?,
             max_inflight: parse("GATEWAY_MAX_INFLIGHT", "512")?,
             max_batch: parse("GATEWAY_MAX_BATCH", "1024")?,
+            max_batch_inflight: parse("GATEWAY_MAX_BATCH_INFLIGHT", "4")?,
         })
     }
 }
@@ -48,6 +54,7 @@ impl fmt::Debug for Config {
             .field("max_body_bytes", &self.max_body_bytes)
             .field("max_inflight", &self.max_inflight)
             .field("max_batch", &self.max_batch)
+            .field("max_batch_inflight", &self.max_batch_inflight)
             .finish()
     }
 }

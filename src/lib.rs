@@ -63,10 +63,10 @@ pub mod models;
 pub mod time;
 pub mod trust;
 
-pub use crypto::KeyPair;
+pub use crypto::{KeyPair, PublicKey};
 pub use error::{Error, Result};
 pub use models::{
     CertificateRevocationList, JoinCertificate, RevokedCertificate, ServiceManifest, Signature,
     Signed,
 };
-pub use trust::{verify_join_certificate, Decision, Policy, Reason, TrustAnchors};
+pub use trust::{verify_join_certificate, Decision, Policy, PreparedPolicy, Reason, TrustAnchors};

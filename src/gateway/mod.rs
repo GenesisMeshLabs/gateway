@@ -3,9 +3,10 @@
 //! Everything the binary needs lives here so integration tests can build the
 //! [`router`] and drive it in-process without binding a socket.
 //!
-//! Trust operations are CPU-bound (Ed25519, canonical JSON). Each handler moves
-//! that work onto [`tokio::task::spawn_blocking`], and `POST /verify/batch`
-//! fans a batch across the Rayon pool, so the async reactor is never blocked.
+//! Single-certificate routes (`/keygen`, `/issue`, `/verify`) run inline on
+//! the Tokio worker: one Ed25519 operation is cheaper than a `spawn_blocking`
+//! handoff. `POST /verify/batch` prepares anchors and the CRL once, then fans
+//! large batches across the Rayon pool from a blocking worker.
 
 mod config;
 mod error;
@@ -30,13 +31,17 @@ pub struct AppState {
     /// Parsed configuration.
     pub cfg: Arc<Config>,
     /// Permits for the in-flight-request limit; exhaustion sheds with 503.
+    /// Applied only to authenticated routes so `/health` stays reachable.
     pub inflight: Arc<Semaphore>,
+    /// Separate cap for `/verify/batch` so one fat batch cannot starve singles.
+    pub batch_inflight: Arc<Semaphore>,
 }
 
 /// Build the gateway router. Exposed for in-process testing.
 pub fn router(cfg: Config) -> Router {
     let state = AppState {
         inflight: Arc::new(Semaphore::new(cfg.max_inflight)),
+        batch_inflight: Arc::new(Semaphore::new(cfg.max_batch_inflight)),
         cfg: Arc::new(cfg),
     };
 
@@ -52,13 +57,13 @@ pub fn router(cfg: Config) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             handlers::auth,
-        ));
-
-    open.merge(guarded)
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             handlers::limit_inflight,
-        ))
+        ));
+
+    open.merge(guarded)
         .layer(TimeoutLayer::new(state.cfg.timeout))
         .layer(RequestBodyLimitLayer::new(state.cfg.max_body_bytes))
         .layer(TraceLayer::new_for_http())
@@ -82,6 +87,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!(%addr, "listening");
 
     axum::serve(listener, app)
+        .tcp_nodelay(true)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
@@ -90,7 +96,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 fn init_tracing() {
     use tracing_subscriber::EnvFilter;
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info"));
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=warn"));
     // `try_init` so repeated calls in tests are harmless.
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }

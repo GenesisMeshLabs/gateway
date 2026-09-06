@@ -41,9 +41,7 @@ pub fn to_canonical_json_excluding<T: Serialize + ?Sized>(
 ) -> Result<String> {
     let mut v = serde_json::to_value(value)?;
     let found = kind_of(&v);
-    let obj = v
-        .as_object_mut()
-        .ok_or(Error::NotAnObject { found })?;
+    let obj = v.as_object_mut().ok_or(Error::NotAnObject { found })?;
     for key in exclude {
         obj.remove(*key);
     }
@@ -52,9 +50,25 @@ pub fn to_canonical_json_excluding<T: Serialize + ?Sized>(
 
 /// Render an already-parsed [`Value`] in canonical form.
 pub fn canonicalize(value: &Value) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(estimate_len(value));
     write_value(value, &mut out);
     out
+}
+
+fn estimate_len(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(_) => 24,
+        Value::String(s) => s.len() + 2,
+        Value::Array(items) => 2 + items.iter().map(estimate_len).sum::<usize>() + items.len(),
+        Value::Object(map) => {
+            2 + map
+                .iter()
+                .map(|(k, v)| k.len() + 3 + estimate_len(v))
+                .sum::<usize>()
+        }
+    }
 }
 
 fn kind_of(v: &Value) -> &'static str {
@@ -87,19 +101,16 @@ fn write_value(value: &Value, out: &mut String) {
             out.push(']');
         }
         Value::Object(map) => {
-            // Sort by Unicode code point, matching Python's sort_keys=True.
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_unstable();
+            // serde_json::Map is a BTreeMap, so iteration is already sorted by
+            // Unicode code point — the same order as Python's sort_keys=True.
             out.push('{');
-            for (i, key) in keys.iter().enumerate() {
+            for (i, (key, v)) in map.iter().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }
                 write_string(key, out);
                 out.push(':');
-                if let Some(v) = map.get(*key) {
-                    write_value(v, out);
-                }
+                write_value(v, out);
             }
             out.push('}');
         }
@@ -109,6 +120,10 @@ fn write_value(value: &Value, out: &mut String) {
 /// Write a JSON string literal using Python's `json.dumps` escaping rules.
 ///
 /// Note Python does not escape `/` or DEL (0x7f), so neither do we.
+pub(crate) fn write_json_string(s: &str, out: &mut String) {
+    write_string(s, out);
+}
+
 fn write_string(s: &str, out: &mut String) {
     out.push('"');
     for ch in s.chars() {

@@ -15,7 +15,8 @@ services:
       GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-15000}
       GATEWAY_MAX_INFLIGHT: ${GATEWAY_MAX_INFLIGHT:-512}
       GATEWAY_MAX_BATCH: ${GATEWAY_MAX_BATCH:-1024}
-      RUST_LOG: ${RUST_LOG:-info,tower_http=info}
+      GATEWAY_MAX_BATCH_INFLIGHT: ${GATEWAY_MAX_BATCH_INFLIGHT:-4}
+      RUST_LOG: ${RUST_LOG:-info,tower_http=warn}
     ports:
       # Loopback only. The public path is the Cloudflare tunnel, which reaches
       # this container over the compose network as http://gateway:8080.

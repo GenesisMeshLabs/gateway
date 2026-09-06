@@ -11,18 +11,28 @@ use tower::ServiceExt; // `oneshot`
 
 const TOKEN: &str = "test-token";
 
-fn app() -> axum::Router {
-    router(Config {
+fn test_config() -> Config {
+    Config {
         addr: "127.0.0.1:0".parse().unwrap(),
         token: Some(TOKEN.to_string()),
         timeout: Duration::from_secs(10),
         max_body_bytes: 1 << 20,
         max_inflight: 64,
         max_batch: 128,
-    })
+        max_batch_inflight: 8,
+    }
 }
 
-async fn call(
+fn app() -> axum::Router {
+    router(test_config())
+}
+
+fn app_with(cfg: Config) -> axum::Router {
+    router(cfg)
+}
+
+async fn call_on(
+    app: axum::Router,
     method: &str,
     path: &str,
     token: Option<&str>,
@@ -40,7 +50,7 @@ async fn call(
         None => builder.body(Body::empty()).unwrap(),
     };
 
-    let response = app().oneshot(request).await.unwrap();
+    let response = app.oneshot(request).await.unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     let value = if bytes.is_empty() {
@@ -49,6 +59,15 @@ async fn call(
         serde_json::from_slice(&bytes).unwrap_or(Value::Null)
     };
     (status, value)
+}
+
+async fn call(
+    method: &str,
+    path: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    call_on(app(), method, path, token, body).await
 }
 
 /// keygen + issue a cert signed by `na-001`; returns (authority_pub, cert).
@@ -129,7 +148,9 @@ async fn verify_wrong_anchor_is_untrusted() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["trusted"], false);
     let reasons = body["reasons"].as_array().unwrap();
-    assert!(reasons.iter().any(|r| r.as_str().unwrap().contains("BadSignature")));
+    assert!(reasons
+        .iter()
+        .any(|r| r.as_str().unwrap().contains("BadSignature")));
 }
 
 #[tokio::test]
@@ -186,4 +207,81 @@ async fn verify_batch_evaluates_each() {
 async fn unknown_route_is_404() {
     let (status, _) = call("GET", "/nope", Some(TOKEN), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn health_stays_up_when_inflight_is_zero() {
+    let mut cfg = test_config();
+    cfg.max_inflight = 0;
+    let (status, body) = call_on(app_with(cfg), "GET", "/health", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "ok");
+}
+
+#[tokio::test]
+async fn verify_is_shed_when_inflight_is_zero() {
+    let mut cfg = test_config();
+    cfg.max_inflight = 0;
+    let (status, body) = call_on(
+        app_with(cfg),
+        "POST",
+        "/verify",
+        Some(TOKEN),
+        Some(json!({
+            "certificate": {"cert_id": "x"},
+            "anchors": {"na-001": "x"},
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"], "server overloaded");
+}
+
+#[tokio::test]
+async fn verify_batch_is_shed_when_batch_inflight_is_zero() {
+    let (auth_pub, cert) = issue_cert().await;
+    let mut cfg = test_config();
+    cfg.max_batch_inflight = 0;
+    let (status, body) = call_on(
+        app_with(cfg),
+        "POST",
+        "/verify/batch",
+        Some(TOKEN),
+        Some(json!({
+            "certificates": [cert],
+            "anchors": { "na-001": auth_pub },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["error"], "server overloaded");
+}
+
+#[tokio::test]
+async fn verify_batch_parallel_path_matches_sequential() {
+    let (auth_pub, cert) = issue_cert().await;
+    // 20 certs is above VERIFY_BATCH_PARALLEL_THRESHOLD (16).
+    let certificates = vec![cert; 20];
+    let (status, body) = call(
+        "POST",
+        "/verify/batch",
+        Some(TOKEN),
+        Some(json!({
+            "certificates": certificates,
+            "anchors": { "na-001": auth_pub },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(results.len(), 20);
+    assert!(results.iter().all(|r| r["trusted"] == true));
+}
+
+#[tokio::test]
+async fn index_is_valid_json() {
+    let (status, body) = call("GET", "/", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["service"], "genesis-mesh-gateway");
+    assert!(body["endpoints"]["GET /health"].is_string());
 }

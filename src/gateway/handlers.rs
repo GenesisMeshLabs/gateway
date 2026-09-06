@@ -1,22 +1,29 @@
 //! Request handlers and middleware.
 //!
-//! Handlers are thin: validate, move the crypto onto a blocking worker, shape
-//! the response. Nothing here holds state between requests.
+//! Handlers are thin: validate, run the crypto (inline for single-cert routes,
+//! prepared + optional Rayon for batches), shape the response. Nothing here
+//! holds state between requests.
 
 use axum::extract::{Request, State};
-use axum::http::{header::AUTHORIZATION, StatusCode};
+use axum::http::{
+    header::{AUTHORIZATION, CONTENT_TYPE},
+    HeaderValue, StatusCode,
+};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
 use crate::crypto::KeyPair;
 use crate::models::{CertificateRevocationList, JoinCertificate, Signed};
-use crate::trust::{verify_join_certificate, Policy, TrustAnchors};
+use crate::trust::{verify_join_certificate, Policy, PreparedPolicy, TrustAnchors};
 
 use super::{ApiError, AppState};
+
+/// Batches smaller than this run sequentially on the Tokio worker. Larger
+/// ones move to `spawn_blocking` and fan out across Rayon.
+const VERIFY_BATCH_PARALLEL_THRESHOLD: usize = 16;
 
 // ---------------------------------------------------------------------------
 // middleware
@@ -60,22 +67,34 @@ pub(super) async fn limit_inflight(
 // GET /  and  GET /health
 // ---------------------------------------------------------------------------
 
-pub(super) async fn index() -> Json<Value> {
-    Json(json!({
-        "service": "genesis-mesh-gateway",
-        "version": env!("CARGO_PKG_VERSION"),
-        "endpoints": {
-            "GET /health": "liveness",
-            "POST /keygen": "-> { seed_b64, public_key_b64 }",
-            "POST /issue": "{ seed_b64, key_id, node_public_key, network_name, roles?, days? } -> JoinCertificate",
-            "POST /verify": "{ certificate, anchors, crl? } -> { trusted, reasons }",
-            "POST /verify/batch": "{ certificates[], anchors, crl? } -> { results[] }"
-        }
-    }))
+const INDEX_JSON: &str = concat!(
+    r#"{"service":"genesis-mesh-gateway","version":""#,
+    env!("CARGO_PKG_VERSION"),
+    r#"","endpoints":{"#,
+    r#""GET /health":"liveness","#,
+    r#""POST /keygen":"-> { seed_b64, public_key_b64 }","#,
+    r#""POST /issue":"{ seed_b64, key_id, node_public_key, network_name, roles?, days? } -> JoinCertificate","#,
+    r#""POST /verify":"{ certificate, anchors, crl? } -> { trusted, reasons }","#,
+    r#""POST /verify/batch":"{ certificates[], anchors, crl? } -> { results[] }""#,
+    r#"}}"#
+);
+
+const HEALTH_JSON: &str = r#"{"status":"ok"}"#;
+
+fn static_json(body: &'static str) -> Response {
+    (
+        [(CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+        body,
+    )
+        .into_response()
 }
 
-pub(super) async fn health() -> Json<Value> {
-    Json(json!({ "status": "ok" }))
+pub(super) async fn index() -> Response {
+    static_json(INDEX_JSON)
+}
+
+pub(super) async fn health() -> Response {
+    static_json(HEALTH_JSON)
 }
 
 // ---------------------------------------------------------------------------
@@ -89,16 +108,11 @@ pub(super) struct KeygenResponse {
 }
 
 pub(super) async fn keygen() -> Result<Json<KeygenResponse>, ApiError> {
-    let out = tokio::task::spawn_blocking(|| -> crate::Result<KeygenResponse> {
-        let kp = KeyPair::generate()?;
-        Ok(KeygenResponse {
-            seed_b64: kp.seed_b64(),
-            public_key_b64: kp.public_key_b64(),
-        })
-    })
-    .await?
-    .map_err(|e| ApiError::internal(e.to_string()))?;
-    Ok(Json(out))
+    let kp = KeyPair::generate().map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(KeygenResponse {
+        seed_b64: kp.seed_b64(),
+        public_key_b64: kp.public_key_b64(),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -126,29 +140,27 @@ pub(super) async fn issue(
 ) -> Result<Json<JoinCertificate>, ApiError> {
     let days = req.days.unwrap_or(7);
     if days <= 0 {
-        return Err(ApiError::bad_request("days must be a positive whole number"));
+        return Err(ApiError::bad_request(
+            "days must be a positive whole number",
+        ));
     }
 
-    let cert = tokio::task::spawn_blocking(move || -> Result<JoinCertificate, ApiError> {
-        let keypair = KeyPair::from_seed_b64(&req.seed_b64)
-            .map_err(|e| ApiError::bad_request(format!("seed_b64: {e}")))?;
+    let keypair = KeyPair::from_seed_b64(&req.seed_b64)
+        .map_err(|e| ApiError::bad_request(format!("seed_b64: {e}")))?;
 
-        let now = Utc::now();
-        let mut cert = JoinCertificate {
-            cert_id: format!("cert-{}", now.timestamp_millis()),
-            node_public_key: req.node_public_key,
-            network_name: req.network_name,
-            roles: req.roles,
-            issued_at: now,
-            expires_at: now + Duration::days(days),
-            issued_by: req.key_id.clone(),
-            signatures: vec![],
-        };
-        cert.sign(&keypair, &req.key_id)
-            .map_err(|e| ApiError::internal(e.to_string()))?;
-        Ok(cert)
-    })
-    .await??;
+    let now = Utc::now();
+    let mut cert = JoinCertificate {
+        cert_id: format!("cert-{}", now.timestamp_millis()),
+        node_public_key: req.node_public_key,
+        network_name: req.network_name,
+        roles: req.roles,
+        issued_at: now,
+        expires_at: now + Duration::days(days),
+        issued_by: req.key_id.clone(),
+        signatures: vec![],
+    };
+    cert.sign(&keypair, &req.key_id)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(Json(cert))
 }
@@ -176,24 +188,21 @@ pub(super) async fn verify(
     Json(req): Json<VerifyRequest>,
 ) -> Result<Json<VerifyResponse>, ApiError> {
     if req.anchors.is_empty() {
-        return Err(ApiError::bad_request("at least one trust anchor is required"));
+        return Err(ApiError::bad_request(
+            "at least one trust anchor is required",
+        ));
     }
 
-    let out = tokio::task::spawn_blocking(move || -> Result<VerifyResponse, ApiError> {
-        let mut policy = Policy::new(&req.anchors);
-        if let Some(ref list) = req.crl {
-            policy = policy.with_crl(list);
-        }
-        let decision = verify_join_certificate(&req.certificate, &policy)
-            .map_err(|e| ApiError::bad_request(e.to_string()))?;
-        Ok(VerifyResponse {
-            trusted: decision.trusted,
-            reasons: decision.reasons.iter().map(|r| format!("{r:?}")).collect(),
-        })
-    })
-    .await??;
-
-    Ok(Json(out))
+    let mut policy = Policy::new(&req.anchors);
+    if let Some(ref list) = req.crl {
+        policy = policy.with_crl(list);
+    }
+    let decision = verify_join_certificate(&req.certificate, &policy)
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    Ok(Json(VerifyResponse {
+        trusted: decision.trusted,
+        reasons: decision.reasons.iter().map(|r| format!("{r:?}")).collect(),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +227,9 @@ pub(super) async fn verify_batch(
     Json(req): Json<VerifyBatchRequest>,
 ) -> Result<Json<VerifyBatchResponse>, ApiError> {
     if req.anchors.is_empty() {
-        return Err(ApiError::bad_request("at least one trust anchor is required"));
+        return Err(ApiError::bad_request(
+            "at least one trust anchor is required",
+        ));
     }
     let max = state.cfg.max_batch;
     if req.certificates.len() > max {
@@ -228,38 +239,48 @@ pub(super) async fn verify_batch(
         )));
     }
 
-    let out = tokio::task::spawn_blocking(move || {
-        use rayon::prelude::*;
+    let _batch_permit = match state.batch_inflight.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "server overloaded".into(),
+            ));
+        }
+    };
 
-        // One instant for the whole batch keeps results consistent.
+    let n = req.certificates.len();
+    let evaluate = move || -> Result<VerifyBatchResponse, ApiError> {
+        // One instant and one decoded key set for the whole batch.
         let now = Utc::now();
-        let crl = req.crl.as_ref();
+        let policy = PreparedPolicy::new(&req.anchors, now, req.crl.as_ref())
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
 
-        let results = req
-            .certificates
-            .par_iter()
-            .map(|cert| {
-                let policy = Policy {
-                    anchors: &req.anchors,
-                    now,
-                    crl,
-                };
-                match verify_join_certificate(cert, &policy) {
-                    Ok(d) => VerifyResponse {
-                        trusted: d.trusted,
-                        reasons: d.reasons.iter().map(|r| format!("{r:?}")).collect(),
-                    },
-                    Err(e) => VerifyResponse {
-                        trusted: false,
-                        reasons: vec![format!("error: {e}")],
-                    },
-                }
-            })
-            .collect();
+        let map_one = |cert: &JoinCertificate| match policy.verify(cert) {
+            Ok(d) => VerifyResponse {
+                trusted: d.trusted,
+                reasons: d.reasons.iter().map(|r| format!("{r:?}")).collect(),
+            },
+            Err(e) => VerifyResponse {
+                trusted: false,
+                reasons: vec![format!("error: {e}")],
+            },
+        };
 
-        VerifyBatchResponse { results }
-    })
-    .await?;
+        let results = if n >= VERIFY_BATCH_PARALLEL_THRESHOLD {
+            use rayon::prelude::*;
+            req.certificates.par_iter().map(map_one).collect()
+        } else {
+            req.certificates.iter().map(map_one).collect()
+        };
+        Ok(VerifyBatchResponse { results })
+    };
+
+    let out = if n >= VERIFY_BATCH_PARALLEL_THRESHOLD {
+        tokio::task::spawn_blocking(evaluate).await??
+    } else {
+        evaluate()?
+    };
 
     Ok(Json(out))
 }

@@ -9,7 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::canonical;
-use crate::crypto::{self, KeyPair};
+use crate::crypto::{KeyPair, PublicKey};
 use crate::error::Result;
 
 /// Clock skew tolerated on both ends of a validity window.
@@ -49,9 +49,14 @@ pub trait Signed: Serialize {
 
     /// Whether any attached signature verifies under `public_key_b64`.
     fn verify_any(&self, public_key_b64: &str) -> Result<bool> {
+        self.verify_any_key(&PublicKey::from_b64(public_key_b64)?)
+    }
+
+    /// Whether any attached signature verifies under an already-parsed key.
+    fn verify_any_key(&self, public_key: &PublicKey) -> Result<bool> {
         let payload = self.signing_input()?;
         for signature in self.signatures() {
-            if crypto::verify_b64(payload.as_bytes(), &signature.sig, public_key_b64)? {
+            if public_key.verify_b64(payload.as_bytes(), &signature.sig)? {
                 return Ok(true);
             }
         }
@@ -91,6 +96,50 @@ impl Signed for JoinCertificate {
     fn push_signature(&mut self, signature: Signature) {
         self.signatures.push(signature);
     }
+
+    /// Canonical JSON minus `signatures`, written directly so verify/sign
+    /// skip the `serde_json::Value` tree. Field order matches Python
+    /// `sort_keys=True` and is pinned by `tests/interop.rs`.
+    fn signing_input(&self) -> Result<String> {
+        Ok(join_certificate_signing_input(self))
+    }
+}
+
+fn join_certificate_signing_input(cert: &JoinCertificate) -> String {
+    let mut out = String::with_capacity(estimated_join_cert_len(cert));
+    out.push_str("{\"cert_id\":");
+    canonical::write_json_string(&cert.cert_id, &mut out);
+    out.push_str(",\"expires_at\":");
+    canonical::write_json_string(&crate::time::format(&cert.expires_at), &mut out);
+    out.push_str(",\"issued_at\":");
+    canonical::write_json_string(&crate::time::format(&cert.issued_at), &mut out);
+    out.push_str(",\"issued_by\":");
+    canonical::write_json_string(&cert.issued_by, &mut out);
+    out.push_str(",\"network_name\":");
+    canonical::write_json_string(&cert.network_name, &mut out);
+    out.push_str(",\"node_public_key\":");
+    canonical::write_json_string(&cert.node_public_key, &mut out);
+    out.push_str(",\"roles\":[");
+    for (i, role) in cert.roles.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        canonical::write_json_string(role, &mut out);
+    }
+    out.push_str("]}");
+    out
+}
+
+fn estimated_join_cert_len(cert: &JoinCertificate) -> usize {
+    128 + cert.cert_id.len()
+        + cert.issued_by.len()
+        + cert.network_name.len() * 6
+        + cert.node_public_key.len()
+        + cert
+            .roles
+            .iter()
+            .map(|role| role.len() * 6 + 3)
+            .sum::<usize>()
 }
 
 /// Authenticates a service identity and the endpoints it answers on.
@@ -189,6 +238,18 @@ mod tests {
         });
         assert_eq!(before, c.signing_input().unwrap());
         assert!(!before.contains("signatures"));
+    }
+
+    #[test]
+    fn signing_input_matches_generic_canonical_form() {
+        let mut c = cert();
+        c.network_name = "mesh-tëst-\u{1F510}".into();
+        c.roles = vec!["role:anchor".into(), "role:client".into()];
+        let generic = canonical::to_canonical_json_excluding(&c, &["signatures"]).unwrap();
+        assert_eq!(c.signing_input().unwrap(), generic);
+
+        c.sign(&KeyPair::generate().unwrap(), "na-001").unwrap();
+        assert_eq!(c.signing_input().unwrap(), generic);
     }
 
     #[test]

@@ -10,7 +10,8 @@
 //!
 //! All base64 is standard alphabet **with** padding.
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::engine::general_purpose::STANDARD;
+use base64::{DecodeSliceError, Engine as _};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 use crate::error::{Error, Result};
@@ -19,6 +20,50 @@ use crate::error::{Error, Result};
 pub const KEY_LEN: usize = 32;
 /// Length of a detached Ed25519 signature, in bytes.
 pub const SIG_LEN: usize = 64;
+
+/// A decoded Ed25519 public key, ready for repeated verification.
+///
+/// Parsing the base64 form and validating the compressed point is the expensive
+/// setup work. [`PreparedPolicy`](crate::trust::PreparedPolicy) does that once
+/// per request so a batch can verify many certificates against the same anchors
+/// without rebuilding the key each time.
+#[derive(Clone)]
+pub struct PublicKey {
+    inner: VerifyingKey,
+}
+
+impl PublicKey {
+    /// Parse a base64-encoded compressed Ed25519 public key.
+    pub fn from_b64(public_key_b64: &str) -> Result<Self> {
+        let key_bytes = decode_fixed::<KEY_LEN>("public key", public_key_b64)?;
+        let inner = VerifyingKey::from_bytes(&key_bytes)
+            .map_err(|e| Error::MalformedPublicKey(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    /// Base64 of the raw 32-byte public key. Safe to publish.
+    pub fn to_b64(&self) -> String {
+        STANDARD.encode(self.inner.to_bytes())
+    }
+
+    /// Verify a base64 detached signature over `message`.
+    ///
+    /// Returns `Ok(false)` for a well-formed but incorrect signature, and `Err`
+    /// only when the signature could not be decoded.
+    pub fn verify_b64(&self, message: &[u8], signature_b64: &str) -> Result<bool> {
+        let sig_bytes = decode_fixed::<SIG_LEN>("signature", signature_b64)?;
+        let signature = Signature::from_bytes(&sig_bytes);
+        Ok(self.inner.verify(message, &signature).is_ok())
+    }
+}
+
+impl std::fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PublicKey")
+            .field("public_key_b64", &self.to_b64())
+            .finish()
+    }
+}
 
 /// An Ed25519 signing identity.
 pub struct KeyPair {
@@ -73,25 +118,36 @@ impl std::fmt::Debug for KeyPair {
 /// Returns `Ok(false)` for a well-formed but incorrect signature, and `Err` only
 /// when an input could not be decoded at all — the caller can then distinguish
 /// "this does not verify" from "this was not a key".
+///
+/// Prefer [`PublicKey::from_b64`] plus [`PublicKey::verify_b64`] when the same
+/// key will be used more than once.
 pub fn verify_b64(message: &[u8], signature_b64: &str, public_key_b64: &str) -> Result<bool> {
-    let key_bytes = decode_fixed::<KEY_LEN>("public key", public_key_b64)?;
-    let verifying = VerifyingKey::from_bytes(&key_bytes)
-        .map_err(|e| Error::MalformedPublicKey(e.to_string()))?;
-    let sig_bytes = decode_fixed::<SIG_LEN>("signature", signature_b64)?;
-    let signature = Signature::from_bytes(&sig_bytes);
-    Ok(verifying.verify(message, &signature).is_ok())
+    PublicKey::from_b64(public_key_b64)?.verify_b64(message, signature_b64)
 }
 
 fn decode_fixed<const N: usize>(field: &'static str, value: &str) -> Result<[u8; N]> {
-    let bytes = STANDARD
-        .decode(value)
-        .map_err(|source| Error::Base64 { field, source })?;
-    let actual = bytes.len();
-    bytes.try_into().map_err(|_| Error::KeyLength {
-        field,
-        expected: N,
-        actual,
-    })
+    let mut out = [0u8; N];
+    match STANDARD.decode_slice(value, &mut out) {
+        Ok(n) if n == N => Ok(out),
+        Ok(n) => Err(Error::KeyLength {
+            field,
+            expected: N,
+            actual: n,
+        }),
+        Err(DecodeSliceError::OutputSliceTooSmall) => {
+            // Fall back to a heap decode only on the error path so the
+            // KeyLength message can still report the true size.
+            let bytes = STANDARD
+                .decode(value)
+                .map_err(|source| Error::Base64 { field, source })?;
+            Err(Error::KeyLength {
+                field,
+                expected: N,
+                actual: bytes.len(),
+            })
+        }
+        Err(DecodeSliceError::DecodeError(source)) => Err(Error::Base64 { field, source }),
+    }
 }
 
 #[cfg(test)]
@@ -123,5 +179,15 @@ mod tests {
     fn wrong_length_key_is_an_error() {
         let err = KeyPair::from_seed_b64("aGk=").unwrap_err();
         assert!(matches!(err, Error::KeyLength { expected: 32, .. }));
+    }
+
+    #[test]
+    fn public_key_round_trips_and_verifies() {
+        let kp = KeyPair::generate().unwrap();
+        let parsed = PublicKey::from_b64(&kp.public_key_b64()).unwrap();
+        let sig = kp.sign_b64(b"hello mesh");
+        assert!(parsed.verify_b64(b"hello mesh", &sig).unwrap());
+        assert!(!parsed.verify_b64(b"goodbye mesh", &sig).unwrap());
+        assert_eq!(parsed.to_b64(), kp.public_key_b64());
     }
 }
