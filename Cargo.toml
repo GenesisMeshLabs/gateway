@@ -1,0 +1,53 @@
+[package]
+name = "genesis-mesh-gateway"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+description = "Concurrent HTTP gateway for Genesis Mesh portable trust — Ed25519 identities, signed join certificates, revocation, and trust evaluation, implemented in Rust and exposed as a JSON API."
+repository = "https://github.com/GenesisMeshLabs/gateway"
+readme = "README.md"
+keywords = ["genesis-mesh", "trust", "gateway", "ed25519", "mesh"]
+categories = ["cryptography", "authentication", "web-programming::http-server"]
+
+# The trust primitives are still a library. `genesis-mesh` stays the crate name
+# so `use genesis_mesh::...` keeps working for the CLI, tests, and doctests.
+[lib]
+name = "genesis_mesh"
+path = "src/lib.rs"
+
+# The gateway is the primary binary.
+[[bin]]
+name = "genesis-mesh-gateway"
+path = "src/main.rs"
+
+# The dependency-free trust CLI is kept for shell use and cross-checking.
+[[bin]]
+name = "genesis-mesh"
+path = "src/bin/genesis_mesh.rs"
+
+[dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+ed25519-dalek = "2"
+getrandom = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# Gateway layer.
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "sync"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "timeout", "limit"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rayon = "1"
+
+[dev-dependencies]
+http-body-util = "0.1"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

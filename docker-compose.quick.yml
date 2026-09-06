@@ -1,0 +1,19 @@
+# Overlay: expose the gateway on an ephemeral Cloudflare "quick tunnel".
+# No Cloudflare account or login required; the public hostname is a random
+# *.trycloudflare.com that changes every restart.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.quick.yml up -d gateway cloudflared-quick
+#   docker compose -f docker-compose.yml -f docker-compose.quick.yml logs cloudflared-quick
+#
+# For a stable hostname on your own domain use the `cloudflared` service in
+# docker-compose.yml instead (see cloudflared/finish-setup.sh).
+name: genesis-mesh-gateway
+
+services:
+  cloudflared-quick:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://gateway:8080
+    depends_on:
+      gateway:
+        condition: service_healthy

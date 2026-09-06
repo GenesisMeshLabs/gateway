@@ -1,0 +1,35 @@
+name: genesis-mesh-gateway
+
+services:
+  # The trust core, served as a JSON API.
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: genesis-mesh-gateway:latest
+    restart: unless-stopped
+    environment:
+      GATEWAY_ADDR: 0.0.0.0:8080
+      # Set GATEWAY_TOKEN (e.g. in .env) to require a bearer token.
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:-}
+      GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-15000}
+      GATEWAY_MAX_INFLIGHT: ${GATEWAY_MAX_INFLIGHT:-512}
+      GATEWAY_MAX_BATCH: ${GATEWAY_MAX_BATCH:-1024}
+      RUST_LOG: ${RUST_LOG:-info,tower_http=info}
+    ports:
+      # Loopback only. The public path is the Cloudflare tunnel, which reaches
+      # this container over the compose network as http://gateway:8080.
+      - "127.0.0.1:8080:8080"
+
+  # Cloudflare tunnel connector (named tunnel). Ingress in
+  # ./cloudflared/config.yml, credentials in ./cloudflared/credentials.json,
+  # both produced by the one-time steps in cloudflared/finish-setup.sh.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    depends_on:
+      gateway:
+        condition: service_healthy

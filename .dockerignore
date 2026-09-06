@@ -1,0 +1,7 @@
+target/
+.git/
+**/*.key
+**/*.pub
+cloudflared/credentials.json
+cloudflared/*.json
+.env

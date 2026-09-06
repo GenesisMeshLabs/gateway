@@ -1,0 +1,10 @@
+/target
+*.key
+*.pub
+.env
+
+# Cargo.lock IS committed — this crate ships a binary.
+
+# Cloudflare tunnel secrets
+cloudflared/credentials.json
+cloudflared/*.json
