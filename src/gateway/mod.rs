@@ -14,6 +14,7 @@ mod handlers;
 
 use std::sync::Arc;
 
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::Router;
 use tokio::net::TcpListener;
@@ -64,7 +65,10 @@ pub fn router(cfg: Config) -> Router {
         ));
 
     open.merge(guarded)
-        .layer(TimeoutLayer::new(state.cfg.timeout))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            state.cfg.timeout,
+        ))
         .layer(RequestBodyLimitLayer::new(state.cfg.max_body_bytes))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
