@@ -13,6 +13,9 @@ const TOKEN: &str = "test-token-with-at-least-32-bytes-long";
 
 fn app() -> axum::Router {
     router(Config {
+        durable: None,
+        oidc: None,
+        distributed_quota: None,
         development: true,
         security: None,
         addr: "127.0.0.1:0".parse().unwrap(),

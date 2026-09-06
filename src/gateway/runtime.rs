@@ -19,6 +19,9 @@ use tracing::Instrument;
 #[derive(Clone)]
 pub(super) struct Principal(pub Option<usize>);
 
+#[derive(Clone, Default)]
+pub(super) struct AuditFacts(pub Arc<Mutex<serde_json::Map<String, serde_json::Value>>>);
+
 pub(super) struct Window(Mutex<(Instant, u32)>);
 
 impl Window {
@@ -97,7 +100,11 @@ fn route_label(path: &str) -> &'static str {
     }
 }
 
-pub(super) async fn observe(State(state): State<AppState>, req: Request, next: Next) -> Response {
+pub(super) async fn observe(
+    State(state): State<AppState>,
+    mut req: Request,
+    next: Next,
+) -> Response {
     static REQUEST_IDS: AtomicU64 = AtomicU64::new(1);
     let id = format!(
         "{}-{:016x}",
@@ -105,15 +112,66 @@ pub(super) async fn observe(State(state): State<AppState>, req: Request, next: N
         REQUEST_IDS.fetch_add(1, Ordering::Relaxed)
     );
     let started = Instant::now();
+    let facts = AuditFacts::default();
+    req.extensions_mut().insert(facts.clone());
     let method = req.method().clone();
     // Never log raw URI, query, headers or bodies, which can contain secrets.
     let route = route_label(req.uri().path());
+    let audit = state
+        .cfg
+        .durable
+        .clone()
+        .filter(|_| !matches!(route, "/health" | "/ready"));
+    let _audit_permit = if audit.is_some() {
+        match state.audit_workers.clone().try_acquire_owned() {
+            Ok(permit) => Some(permit),
+            Err(_) => {
+                return ApiError(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "audit capacity exhausted".into(),
+                )
+                .into_response()
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(durable) = &audit {
+        let durable = durable.clone();
+        let event_id = format!("{id}:started");
+        let event = serde_json::json!({"request_id":id,"phase":"started","method":method.as_str(),"route":route,"at":chrono::Utc::now()});
+        if !matches!(
+            tokio::task::spawn_blocking(move || durable.audit(&event_id, &event)).await,
+            Ok(Ok(()))
+        ) {
+            return ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "durable audit unavailable".into(),
+            )
+            .into_response();
+        }
+    }
     state.metrics.requests.fetch_add(1, Ordering::Relaxed);
     let mut response = next
         .run(req)
         .instrument(tracing::info_span!("request", request_id = %id))
         .await;
     let elapsed = started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+    if let Some(durable) = audit {
+        let event_id = format!("{id}:completed");
+        let context = facts.0.lock().map(|v| v.clone()).unwrap_or_default();
+        let event = serde_json::json!({"request_id":id,"phase":"completed","status":response.status().as_u16(),"elapsed_us":elapsed,"context":context,"at":chrono::Utc::now()});
+        if !matches!(
+            tokio::task::spawn_blocking(move || durable.audit(&event_id, &event)).await,
+            Ok(Ok(()))
+        ) {
+            response = ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "durable audit unavailable; inspect request outcome before retry".into(),
+            )
+            .into_response();
+        }
+    }
     state
         .metrics
         .latency_us
@@ -152,11 +210,21 @@ pub(super) async fn observe(State(state): State<AppState>, req: Request, next: N
 }
 
 pub(super) async fn ready(State(state): State<AppState>) -> Response {
-    let ready = state
-        .security
-        .load_full()
-        .as_ref()
-        .is_none_or(|p| p.networks.values().all(|n| n.ready(chrono::Utc::now())));
+    if let Some(quota) = &state.cfg.distributed_quota {
+        if !quota.healthy().await {
+            return ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "shared quota unavailable".into(),
+            )
+            .into_response();
+        }
+    }
+    let ready = state.cfg.durable.as_ref().is_none_or(|d| d.healthy())
+        && state
+            .security
+            .load_full()
+            .as_ref()
+            .is_none_or(|p| p.networks.values().all(|n| n.ready(chrono::Utc::now())));
     if ready {
         (
             StatusCode::OK,
@@ -183,11 +251,23 @@ pub(super) async fn metrics(
         }
     }
     let m: &Arc<Metrics> = &state.metrics;
+    let durable_stats = if let Some(store) = &state.cfg.durable {
+        let store = store.clone();
+        tokio::task::spawn_blocking(move || store.stats())
+            .await
+            .ok()
+            .and_then(Result::ok)
+    } else {
+        None
+    };
     let mut output = format!(
         "# TYPE gateway_requests_total counter\ngateway_requests_total {}\n# TYPE gateway_failures_total counter\ngateway_failures_total {}\n# TYPE gateway_denied_total counter\ngateway_denied_total {}\n# TYPE gateway_crypto_active gauge\ngateway_crypto_active {}\n",
         m.requests.load(Ordering::Relaxed), m.failures.load(Ordering::Relaxed), m.denied.load(Ordering::Relaxed), state.cfg.cpu_workers - state.workers.available_permits()
     );
     output.push_str("# TYPE gateway_request_duration_seconds histogram\n");
+    if let Some((pending, bytes)) = durable_stats {
+        output.push_str(&format!("# TYPE gateway_audit_pending gauge\ngateway_audit_pending {pending}\n# TYPE gateway_state_bytes gauge\ngateway_state_bytes {bytes}\n"));
+    }
     for (bucket, ceiling) in m.buckets.iter().zip([
         "0.0001", "0.0005", "0.001", "0.005", "0.01", "0.05", "0.1", "1",
     ]) {
@@ -228,6 +308,9 @@ mod tests {
     #[tokio::test]
     async fn cancelled_request_keeps_worker_capacity_reserved() {
         let cfg = crate::gateway::Config {
+            durable: None,
+            oidc: None,
+            distributed_quota: None,
             development: true,
             security: None,
             addr: "127.0.0.1:0".parse().unwrap(),

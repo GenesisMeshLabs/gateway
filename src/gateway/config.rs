@@ -7,6 +7,12 @@ use std::time::Duration;
 /// Every knob the gateway reads from the environment.
 #[derive(Clone)]
 pub struct Config {
+    /// Optional organization token verifier; service scopes stay in operator policy.
+    pub oidc: Option<std::sync::Arc<super::oidc::Oidc>>,
+    /// Optional shared quota backend, with no local fallback on failure.
+    pub distributed_quota: Option<std::sync::Arc<super::quota::DistributedQuota>>,
+    /// Optional gateway-owned durable CRL and audit store.
+    pub durable: Option<std::sync::Arc<super::durable::DurableState>>,
     /// Explicit local utility mode; production is the default.
     pub development: bool,
     /// Operator policy, required outside development mode.
@@ -35,18 +41,75 @@ pub struct Config {
 impl Config {
     /// Read the environment. Returns an error string on an unparseable value.
     pub fn from_env() -> Result<Self, String> {
-        let security = std::env::var("GATEWAY_POLICY_FILE")
+        Self::from_env_inner(true)
+    }
+
+    /// Explicit first deployment bootstrap; refuses to replace existing state.
+    pub fn initialize_state() -> Result<(), String> {
+        let mut cfg = Self::from_env_inner(false)?;
+        let path = std::env::var("GATEWAY_STATE_FILE").map_err(|_| "set GATEWAY_STATE_FILE")?;
+        let policy = cfg
+            .security
+            .as_mut()
+            .ok_or("durable state requires production policy")?;
+        super::durable::DurableState::initialize(std::path::Path::new(&path))?;
+        super::durable::DurableState::open(std::path::Path::new(&path))?.restore(policy)
+    }
+
+    fn from_env_inner(load_state: bool) -> Result<Self, String> {
+        let mut security: Option<super::security::SecurityPolicy> =
+            std::env::var("GATEWAY_POLICY_FILE")
+                .ok()
+                .map(|path| {
+                    let bytes = std::fs::read(path)
+                        .map_err(|_| "cannot read GATEWAY_POLICY_FILE".to_string())?;
+                    if bytes.len() > 16 * 1024 * 1024 {
+                        return Err("policy file exceeds 16 MiB".into());
+                    }
+                    serde_json::from_slice(&bytes).map_err(|_| "invalid policy JSON".to_string())
+                })
+                .transpose()?;
+        let durable = if load_state {
+            std::env::var("GATEWAY_STATE_FILE")
+                .ok()
+                .map(|path| {
+                    let state = super::durable::DurableState::open(std::path::Path::new(&path))?;
+                    state.restore(
+                        security
+                            .as_mut()
+                            .ok_or("durable state requires production policy")?,
+                    )?;
+                    Ok::<_, String>(std::sync::Arc::new(state))
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        let oidc = std::env::var("GATEWAY_OIDC_FILE")
             .ok()
             .map(|path| {
-                let bytes = std::fs::read(path)
-                    .map_err(|_| "cannot read GATEWAY_POLICY_FILE".to_string())?;
-                if bytes.len() > 16 * 1024 * 1024 {
-                    return Err("policy file exceeds 16 MiB".into());
-                }
-                serde_json::from_slice(&bytes).map_err(|_| "invalid policy JSON".to_string())
+                super::oidc::Oidc::load(
+                    &path,
+                    security.as_ref().ok_or("OIDC requires production policy")?,
+                )
+                .map(std::sync::Arc::new)
+            })
+            .transpose()?;
+        let distributed_quota = std::env::var("GATEWAY_REDIS_URL_FILE")
+            .ok()
+            .map(|path| {
+                super::quota::DistributedQuota::load(
+                    &path,
+                    std::env::var("GATEWAY_QUOTA_NAMESPACE")
+                        .map_err(|_| "set a shared GATEWAY_QUOTA_NAMESPACE")?,
+                )
+                .map(std::sync::Arc::new)
             })
             .transpose()?;
         let mut cfg = Self {
+            oidc,
+            distributed_quota,
+            durable,
             development: parse("GATEWAY_DEVELOPMENT", "false")?,
             security,
             addr: parse("GATEWAY_ADDR", "127.0.0.1:8080")?,

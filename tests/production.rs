@@ -22,6 +22,187 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-production-service-token-32-bytes-minimum";
 
+#[tokio::test]
+async fn durable_gateway_restart_restores_revocations_and_audit_without_upstream() {
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-state-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    assert!(DurableState::open(&path).is_err());
+    DurableState::initialize(&path).unwrap();
+    let (mut cfg, cert, key) = fixture();
+    let old_policy = cfg.security.clone().unwrap();
+    let durable = DurableState::open(&path).unwrap();
+    assert!(
+        DurableState::open(&path).is_err(),
+        "second writer must be rejected"
+    );
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    let n = cfg
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap();
+    n.crl.sequence += 1;
+    n.crl.revoked_certificates.push(RevokedCertificate {
+        certificate_id: cert.cert_id.clone(),
+        revoked_at: Utc::now(),
+        reason: "key_compromise".into(),
+        issuer: "authority".into(),
+    });
+    n.crl.signatures.clear();
+    n.crl.sign(&key, "authority").unwrap();
+    durable.checkpoint("public-agency", n).unwrap();
+    durable
+        .audit("test-audit", &json!({"event":"checkpoint-test"}))
+        .unwrap();
+    drop(durable);
+    let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
+    cfg.security = Some(old_policy);
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    assert_eq!(
+        cfg.security.as_ref().unwrap().networks["public-agency"]
+            .crl
+            .sequence,
+        6
+    );
+    assert_eq!(durable.pending_audit().unwrap()[0]["id"], "test-audit");
+    durable.acknowledge(&["test-audit".into()]).unwrap();
+    cfg.durable = Some(durable.clone());
+    let app = router(cfg);
+    let (status, result) = call(
+        &app,
+        "/verify",
+        Some(json!({"certificate":cert})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["trusted"], false);
+    assert!(result["reasons"].to_string().contains("Revoked"));
+    let pending = durable.pending_audit().unwrap();
+    assert!(pending.len() >= 2);
+    let completed = pending
+        .iter()
+        .find(|e| e["event"]["phase"] == "completed")
+        .unwrap();
+    assert_eq!(
+        completed["event"]["context"]["trust_decision"]["trusted"],
+        false
+    );
+    assert_eq!(
+        durable.pending_audit().unwrap(),
+        pending,
+        "unacknowledged delivery retries retain stable IDs"
+    );
+    durable.acknowledge(&["foreign-id".into()]).unwrap();
+    assert_eq!(durable.pending_audit().unwrap(), pending);
+    let (count, bytes) = durable.stats().unwrap();
+    assert_eq!(count, pending.len() as u64);
+    assert!(bytes > 0);
+    drop(app);
+    drop(durable);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
+fn durable_state_rejects_corruption_conflicts_and_forged_progress() {
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-state-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    DurableState::initialize(&path).unwrap();
+    let (mut cfg, _, key) = fixture();
+    let durable = DurableState::open(&path).unwrap();
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    let mut altered = cfg
+        .security
+        .unwrap()
+        .networks
+        .remove("public-agency")
+        .unwrap();
+    altered.crl.sequence += 1;
+    altered.crl.signatures.clear();
+    altered
+        .crl
+        .sign(&KeyPair::generate().unwrap(), "authority")
+        .unwrap();
+    assert!(durable.checkpoint("public-agency", &altered).is_err());
+    altered.crl.sequence = 4;
+    altered.crl.signatures.clear();
+    altered.crl.sign(&key, "authority").unwrap();
+    assert!(durable.checkpoint("public-agency", &altered).is_err());
+    assert!(!durable.healthy());
+    drop(durable);
+    std::fs::write(&path, b"corrupted").unwrap();
+    assert!(DurableState::open(&path).is_err());
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[tokio::test]
+async fn multiple_issuers_use_their_own_signed_revocations_and_parent_roles() {
+    let (mut cfg, mut cert, _) = fixture();
+    let other_key = KeyPair::generate().unwrap();
+    let parent = cfg
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap();
+    let mut other = parent.clone();
+    other.required_roles.clear();
+    other.anchors = [("other".into(), other_key.public_key_b64())].into();
+    other.crl.issuer = "other".into();
+    other.crl.signatures.clear();
+    other.crl.sign(&other_key, "other").unwrap();
+    parent
+        .additional_issuers
+        .insert("other".into(), Box::new(other));
+    cfg.prepare().unwrap();
+    cert.issued_by = "other".into();
+    cert.signatures.clear();
+    cert.sign(&other_key, "other").unwrap();
+    let (status, value) = call(
+        &router(cfg.clone()),
+        "/verify",
+        Some(json!({"certificate":cert})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(value["trusted"], true);
+    let other = cfg
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .additional_issuers
+        .get_mut("other")
+        .unwrap();
+    other.crl.revoked_certificates.push(RevokedCertificate {
+        certificate_id: cert.cert_id.clone(),
+        revoked_at: Utc::now(),
+        reason: "key_compromise".into(),
+        issuer: "other".into(),
+    });
+    other.crl.signatures.clear();
+    other.crl.sign(&other_key, "other").unwrap();
+    let (_, value) = call(
+        &router(cfg),
+        "/verify",
+        Some(json!({"certificate":cert})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(value["trusted"], false);
+    assert!(value["reasons"].to_string().contains("Revoked"));
+}
+
 fn fixture() -> (Config, JoinCertificate, KeyPair) {
     let key = KeyPair::generate().unwrap();
     let now = Utc::now();
@@ -47,6 +228,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
     };
     crl.sign(&key, "authority").unwrap();
     let network = NetworkPolicy {
+        additional_issuers: Default::default(),
         public_mesh: false,
         authority_url: None,
         crl_url: None,
@@ -70,6 +252,9 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
     };
     (
         Config {
+            durable: None,
+            oidc: None,
+            distributed_quota: None,
             development: false,
             security: Some(SecurityPolicy {
                 revision: "test-1".into(),

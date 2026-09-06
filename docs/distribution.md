@@ -116,17 +116,11 @@ Every replica independently verifies snapshots from its pinned authorities.
 Snapshots are immutable during each verification/batch. Replicas can briefly
 observe different valid CRL sequences during refresh or outages. This is not
 linearizable distributed authorization. A stale snapshot stops granting trust.
-Maintain durable sequence floors in the policy distribution pipeline; process
-refresh high-water marks still do not survive rollback of the configured floor.
-
-Client quotas are exact **within one process**, including reset races, but are
-not global quotas. N replicas can admit N times the configured allowance. Apply
-organization-wide quotas at ingress when required; load balancing is not a
-replacement for quota coordination.
+Enable GATEWAY_STATE_FILE on a persistent per-replica volume to preserve verified high-water marks across restarts. Configure the Redis adapter and shared namespace for coordinated client quotas. See [platform controls](platform.md) for initialization, fail-closed recovery and backend availability requirements.
 
 Request IDs contain a random boot ID and local sequence, avoiding collisions
 between replicas. Audit stdout uses a bounded 8192-line background writer with
-backpressure instead of silent dropping. It is not a durable audit database.
+backpressure instead of silent dropping. The separate SQLite audit sink is durable when GATEWAY_STATE_FILE is set; optional acknowledged HTTPS delivery is available.
 Collect logs centrally and monitor collector health. Prometheus exposes an
 aggregate request-duration histogram in seconds, with sub-millisecond buckets.
 It covers all HTTP requests, including health checks; add workload-specific
@@ -137,3 +131,21 @@ signature acceptance/rejection, and mixed single/batch load. Compare p99 and
 accepted certificates per second at the same CPU quota before making performance
 claims. Kubernetes templates and CI workflows require execution in your own
 cluster/CI before treating them as verified deployments.
+
+## Signed release artifacts
+
+Tagged releases sign and immediately verify each native ZIP and the multiarchitecture
+OCI archive with Sigstore. Download the matching `.sigstore.json` bundle and
+verify the archive before extracting or importing it:
+
+```sh
+cosign verify-blob gateway-oci.tar --bundle gateway-oci.tar.sigstore.json \
+  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/v0.57.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+The OCI archive contains BuildKit SBOM and provenance attestations for both
+architectures. Import with an OCI-aware registry tool (for example skopeo);
+this archive is not a Docker `save` archive. The signature covers the archive
+bytes, including the attestations. Verify native ZIPs with the same command
+and their matching bundle. See [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/).

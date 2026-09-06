@@ -31,13 +31,19 @@ pub(super) async fn auth(
     req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
+    if state.cfg.durable.as_ref().is_some_and(|d| !d.healthy()) {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "durable state unavailable".into(),
+        ));
+    }
     let presented = req
         .headers()
         .get(AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
     let security = state.security.load_full();
-    let identity = presented
+    let mut identity = presented
         .filter(|t| t.len() >= 32 && t.len() <= 1024)
         .and_then(|token| {
             if let Some(policy) = &security {
@@ -50,6 +56,17 @@ pub(super) async fn auth(
                     .map(|_| Principal(None))
             }
         });
+    if identity.is_none() {
+        if let (Some(oidc), Some(token), Some(policy)) = (&state.cfg.oidc, presented, &security) {
+            if let Some(client_id) = oidc.authenticate(token).await {
+                identity = policy
+                    .clients
+                    .iter()
+                    .position(|c| c.id == client_id)
+                    .map(|i| Principal(Some(i)));
+            }
+        }
+    }
     let Some(principal) = identity else {
         state
             .metrics
@@ -58,7 +75,26 @@ pub(super) async fn auth(
         return Err(ApiError::unauthorized());
     };
     if let (Some(policy), Some(i)) = (&security, principal.0) {
-        if !super::runtime::admit(&state.quotas[i], policy.clients[i].requests_per_minute) {
+        if let Some(facts) = req.extensions().get::<super::runtime::AuditFacts>() {
+            if let Ok(mut context) = facts.0.lock() {
+                context.insert("client_id".into(), json!(policy.clients[i].id));
+                context.insert("policy_revision".into(), json!(policy.revision));
+            }
+        }
+        let admitted = if let Some(quota) = &state.cfg.distributed_quota {
+            quota
+                .admit(&policy.clients[i].id, policy.clients[i].requests_per_minute)
+                .await
+                .map_err(|_| {
+                    ApiError(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "shared quota backend unavailable".into(),
+                    )
+                })?
+        } else {
+            super::runtime::admit(&state.quotas[i], policy.clients[i].requests_per_minute)
+        };
+        if !admitted {
             return Err(ApiError(
                 StatusCode::TOO_MANY_REQUESTS,
                 "client quota exhausted".into(),
@@ -97,6 +133,13 @@ pub(super) async fn index(State(state): State<AppState>) -> Json<Value> {
         "service": "genesis-mesh-gateway",
         "version": env!("CARGO_PKG_VERSION"),
         "mode": if state.cfg.development { "development" } else { "production" },
+        "security_capabilities": {
+            "durable_crl_state":state.cfg.durable.is_some(),
+            "durable_audit":state.cfg.durable.is_some(),
+            "oidc":state.cfg.oidc.is_some(),
+            "shared_quotas":state.cfg.distributed_quota.is_some(),
+            "multi_issuer_crls":true
+        },
         "endpoints": ["GET /api", "GET /openapi.json", "GET /health", "GET /ready", "GET /v1/networks", "GET /v1/mesh", "GET /v1/services", "GET /metrics", "POST /verify", "POST /verify/batch"],
         "authority_service_route": "/v1/networks/{network}/services/{operation}",
         "service_catalog": "/v1/services"
@@ -220,6 +263,7 @@ pub(super) struct VerifyResponse {
 pub(super) async fn verify(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(facts): Extension<super::runtime::AuditFacts>,
     Json(req): Json<VerifyRequest>,
 ) -> Result<Json<VerifyResponse>, ApiError> {
     authorize(
@@ -243,6 +287,9 @@ pub(super) async fn verify(
         })
         .await?;
 
+    if let Ok(mut context) = facts.0.lock() {
+        context.insert("trust_decision".into(), json!(&out));
+    }
     Ok(Json(out))
 }
 
@@ -268,6 +315,7 @@ pub(super) struct VerifyBatchResponse {
 pub(super) async fn verify_batch(
     State(state): State<AppState>,
     Extension(principal): Extension<Principal>,
+    Extension(facts): Extension<super::runtime::AuditFacts>,
     Json(req): Json<VerifyBatchRequest>,
 ) -> Result<Json<VerifyBatchResponse>, ApiError> {
     let max = state.cfg.max_batch;
@@ -318,6 +366,9 @@ pub(super) async fn verify_batch(
         })
         .await?;
 
+    if let Ok(mut context) = facts.0.lock() {
+        context.insert("trust_decisions".into(), json!(&out.results));
+    }
     Ok(Json(out))
 }
 
@@ -383,6 +434,7 @@ fn evaluate(
             reasons: vec!["NetworkPolicyRejected".into()],
         };
     }
+    let network = network.and_then(|n| n.issuer(&cert.issued_by));
     let policy = Policy {
         anchors: network.map_or(anchors, |n| &n.anchors),
         now,

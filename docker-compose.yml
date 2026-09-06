@@ -11,6 +11,9 @@ services:
     environment:
       GATEWAY_ADDR: 0.0.0.0:8080
       GATEWAY_POLICY_FILE: /run/gateway/policy.json
+      GATEWAY_STATE_FILE: /var/lib/gateway/state.db
+      GATEWAY_REDIS_URL_FILE: /run/gateway/redis.url
+      GATEWAY_QUOTA_NAMESPACE: mesh-production
       GATEWAY_TIMEOUT_MS: ${GATEWAY_TIMEOUT_MS:-15000}
       GATEWAY_MAX_INFLIGHT: ${GATEWAY_MAX_INFLIGHT:-32}
       GATEWAY_MAX_BATCH: ${GATEWAY_MAX_BATCH:-128}
@@ -21,6 +24,11 @@ services:
       RUST_LOG: ${GATEWAY_LOG_FILTER:-info,tower_http=info}
     volumes:
       - ./.local/policy.json:/run/gateway/policy.json:ro
+      - ./.local/redis.url:/run/gateway/redis.url:ro
+      - gateway-state:/var/lib/gateway
+    depends_on:
+      quota:
+        condition: service_started
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -38,6 +46,23 @@ services:
       # this container over the compose network as http://gateway:8080.
       - "127.0.0.1:8080:8080"
 
+  quota:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server /run/redis/redis.conf
+    volumes:
+      - ./.local/redis.conf:/run/redis/redis.conf:ro
+      - quota-state:/data
+    read_only: true
+    cap_drop: [ALL]
+    user: "999:1000"
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+
   # Cloudflare tunnel connector (named tunnel). Ingress in
   # ./cloudflared/config.yml, credentials in ./cloudflared/credentials.json,
   # both produced by the one-time steps in cloudflared/finish-setup.sh.
@@ -50,3 +75,7 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+
+volumes:
+  gateway-state:
+  quota-state:

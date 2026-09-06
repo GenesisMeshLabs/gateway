@@ -58,8 +58,7 @@ Set `GATEWAY_POLICY_FILE` to an operator-managed JSON file:
 This is a schema example, not usable trust material. Obtain the actual signed
 CRL and approved keys from your Genesis Mesh authority. Startup validates the
 signature, sequence floor and freshness. Never edit a signed CRL's fields.
-One CRL issuer governs each configured network; multi-authority revocation
-aggregation is not implemented. Required roles are all-of conditions.
+Networks support independently pinned additional CRL issuers. Required roles are all-of conditions; see [platform controls](platform.md).
 
 Apply updates through an access-controlled configuration pipeline: retrieve and
 validate authority material, retain a durable highest-seen sequence, advance
@@ -72,8 +71,7 @@ under the pinned issuer, be fresh, and not regress sequence or issuance time.
 Same-sequence updates cannot alter revocations. A failure retains the last
 verified snapshot, which stops granting trust at expiry. Updates replace the
 in-memory snapshot atomically. Operator configuration is not hot-reloaded, and
-sequence history is not persisted. Restart therefore uses the policy-file
-snapshot and sequence floor. With a configured CRL URL, an authentic expired
+sequence history persists when GATEWAY_STATE_FILE is configured. Restart restores verified durable checkpoints before using the policy-file snapshot and floor. With a configured CRL URL, an authentic expired
 bootstrap snapshot may start in not-ready state and recover after a successful
 refresh. Without a URL, expired startup snapshots are rejected. Keep the durable
 sequence floor current in the configuration pipeline. Rolling back the file and its
@@ -125,9 +123,7 @@ An independent worker semaphore stays held until computation actually finishes,
 even if the HTTP future times out or disconnects. Batch processing is sequential
 within each worker; independent requests execute concurrently. Set concurrency
 and batch sizes using load tests on your actual CPU allocation. Quotas count
-requests, not certificates, and reset per process every sixty seconds; they are
-not distributed quotas. Replicas multiply the allowance. Ingress must supply
-cluster-wide controls where required.
+requests, not certificates, over sixty-second windows. Configure Redis for a shared allowance across replicas; otherwise quotas remain process-local.
 
 CPU tasks cannot be interrupted once started. SIGTERM and Ctrl-C stop accepting
 new connections and allow requests to drain. Enforce a bounded container stop
@@ -158,8 +154,7 @@ image scans, workload capacity/soak tests, disaster recovery and rotation drills
 ingress review and your organization's privacy/accreditation process. No claim
 of FIPS validation, NIS2/GDPR compliance or suitability for classified systems is
 made. HSM-backed issuance belongs in the authority; this production gateway
-does not accept or hold authority signing keys. OIDC, native mTLS, durable audit
-delivery, durable CRL sequence history and distributed quotas are not implemented.
+does not accept or hold authority signing keys. OIDC, native mTLS, durable audit delivery, durable CRL history and Redis quotas are implemented as configurable adapters. See [platform controls](platform.md) for activation and recovery boundaries.
 
 Replica packaging, CPU/batch budgets, field limits and quota semantics are
 documented in [distribution](distribution.md).

@@ -50,7 +50,8 @@ pub(super) async fn networks(
     let networks: Vec<Value> = policy.networks.iter().filter(|(name, _)| client.networks.contains(*name)).map(|(name, network)| json!({
         "name": name, "ready": network.ready(chrono::Utc::now()), "anchors": network.anchors,
         "services_configured": network.authority_url.is_some(),
-        "required_roles": network.required_roles, "revocation": {"issuer":network.crl.issuer, "sequence":network.crl.sequence, "issued_at":network.crl.issued_at, "next_update":network.crl.next_update, "revoked_count":network.crl.revoked_certificates.len()}
+        "required_roles": network.required_roles, "revocation": {"issuer":network.crl.issuer, "sequence":network.crl.sequence, "issued_at":network.crl.issued_at, "next_update":network.crl.next_update, "revoked_count":network.crl.revoked_certificates.len()},
+        "additional_issuers":network.additional_issuers.values().map(|n| json!({"issuer":n.crl.issuer,"sequence":n.crl.sequence,"next_update":n.crl.next_update,"ready":n.primary_ready(chrono::Utc::now()),"revoked_count":n.crl.revoked_certificates.len()})).collect::<Vec<_>>()
     })).collect();
     Ok(Json(
         json!({"policy_revision":policy.revision,"client_id":client.id,"networks":networks,

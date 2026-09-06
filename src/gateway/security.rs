@@ -56,6 +56,10 @@ pub struct Client {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkPolicy {
+    /// Additional explicitly pinned CRL issuers for this same trust domain.
+    /// Entries use the same snapshot shape but cannot nest additional issuers.
+    #[serde(default)]
+    pub additional_issuers: BTreeMap<String, Box<NetworkPolicy>>,
     /// Publish a minimal read-only topology for this network. Private by default.
     #[serde(default)]
     pub public_mesh: bool,
@@ -115,6 +119,35 @@ impl SecurityPolicy {
             }
         }
         for (name, network) in &self.networks {
+            if network.additional_issuers.len() > 8 {
+                return Err("at most eight additional CRL issuers per network".into());
+            }
+            for (issuer, additional) in &network.additional_issuers {
+                if issuer != &additional.crl.issuer
+                    || issuer == &network.crl.issuer
+                    || !additional.additional_issuers.is_empty()
+                    || !additional.required_roles.is_empty()
+                    || additional.public_mesh
+                    || additional.authority_url.is_some()
+                {
+                    return Err("additional issuers must be flat CRL sources; roles and service origin belong to the parent network".into());
+                }
+                let single = SecurityPolicy {
+                    revision: self.revision.clone(),
+                    networks: [(name.clone(), (**additional).clone())].into(),
+                    clients: self
+                        .clients
+                        .iter()
+                        .cloned()
+                        .map(|mut c| {
+                            c.networks = [name.clone()].into();
+                            c
+                        })
+                        .collect(),
+                    token_index: Default::default(),
+                };
+                single.validate()?;
+            }
             if let Some(raw) = &network.authority_url {
                 let url = reqwest::Url::parse(raw).map_err(|_| "invalid authority URL")?;
                 if !(url.scheme() == "https" || (url.scheme() == "http" && network.allow_http))
@@ -152,7 +185,7 @@ impl SecurityPolicy {
                 || network.crl.sequence < network.minimum_crl_sequence
                 || network.crl.issued_at > Utc::now()
                 || network.crl.issued_at >= network.crl.next_update
-                || (!network.ready(Utc::now()) && network.crl_url.is_none())
+                || (!network.primary_ready(Utc::now()) && network.crl_url.is_none())
             {
                 return Err("CRL is invalid, stale, future-dated or below minimum sequence".into());
             }
@@ -194,6 +227,14 @@ impl SecurityPolicy {
 impl NetworkPolicy {
     /// A snapshot must be signed by its named issuer and fresh right now.
     pub fn ready(&self, now: DateTime<Utc>) -> bool {
+        self.primary_ready(now)
+            && self
+                .additional_issuers
+                .values()
+                .all(|n| n.primary_ready(now))
+    }
+
+    pub(super) fn primary_ready(&self, now: DateTime<Utc>) -> bool {
         let crl = &self.crl;
         crl.sequence >= self.minimum_crl_sequence && crl.issued_at <= now && now < crl.next_update
     }
@@ -211,6 +252,9 @@ impl NetworkPolicy {
     }
 
     pub(super) fn rebuild_crypto_cache(&mut self) {
+        for additional in self.additional_issuers.values_mut() {
+            additional.rebuild_crypto_cache();
+        }
         self.revoked_index.clear();
         for (index, entry) in self.crl.revoked_certificates.iter().enumerate() {
             self.revoked_index
@@ -230,12 +274,22 @@ impl NetworkPolicy {
     /// Signature verification is left to [`crate::trust::verify_join_certificate`]
     /// so each certificate is canonicalized and checked once.
     pub fn accepts(&self, cert: &JoinCertificate, now: DateTime<Utc>) -> bool {
-        self.ready(now)
-            && cert.issued_at < cert.expires_at
-            && cert.issued_by == self.crl.issuer
-            && self.anchors.contains_key(&cert.issued_by)
-            && crypto::validate_public_key(&cert.node_public_key).unwrap_or(false)
-            && self.required_roles.iter().all(|r| cert.roles.contains(r))
+        self.issuer(&cert.issued_by).is_some_and(|issuer| {
+            issuer.primary_ready(now)
+                && cert.issued_at < cert.expires_at
+                && issuer.anchors.contains_key(&cert.issued_by)
+                && crypto::validate_public_key(&cert.node_public_key).unwrap_or(false)
+                && self.required_roles.iter().all(|r| cert.roles.contains(r))
+        })
+    }
+
+    /// Select only the CRL and pinned keys belonging to the certificate's named issuer.
+    pub fn issuer(&self, id: &str) -> Option<&NetworkPolicy> {
+        if id == self.crl.issuer {
+            Some(self)
+        } else {
+            self.additional_issuers.get(id).map(Box::as_ref)
+        }
     }
 }
 

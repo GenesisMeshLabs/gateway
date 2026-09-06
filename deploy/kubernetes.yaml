@@ -1,14 +1,13 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: genesis-mesh-gateway
 spec:
   replicas: 2
+  serviceName: genesis-mesh-gateway
   minReadySeconds: 10
-  progressDeadlineSeconds: 180
-  strategy:
+  updateStrategy:
     type: RollingUpdate
-    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
   selector:
     matchLabels: {app: genesis-mesh-gateway}
   template:
@@ -21,6 +20,7 @@ spec:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile: {type: RuntimeDefault}
       topologySpreadConstraints:
         - maxSkew: 1
@@ -37,6 +37,9 @@ spec:
           env:
             - {name: GATEWAY_ADDR, value: "0.0.0.0:8080"}
             - {name: GATEWAY_POLICY_FILE, value: /run/gateway/policy.json}
+            - {name: GATEWAY_STATE_FILE, value: /var/lib/gateway/state.db}
+            - {name: GATEWAY_REDIS_URL_FILE, value: /run/gateway/redis.url}
+            - {name: GATEWAY_QUOTA_NAMESPACE, value: organization-production}
             - {name: GATEWAY_MAX_INFLIGHT, value: "32"}
             - {name: GATEWAY_CPU_WORKERS, value: "2"}
             - {name: GATEWAY_MAX_BATCH_JOBS, value: "1"}
@@ -63,10 +66,21 @@ spec:
             periodSeconds: 3
           volumeMounts:
             - {name: policy, mountPath: /run/gateway, readOnly: true}
+            - {name: state, mountPath: /var/lib/gateway}
       volumes:
         - name: policy
           secret:
             secretName: gateway-policy
+  # Initialize each new PVC explicitly with --init-state using the approved
+  # image and policy before starting its replica. Never auto-create lost state.
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 4Gi
 ---
 apiVersion: v1
 kind: Service

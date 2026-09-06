@@ -14,6 +14,8 @@ canonical JSON and signature compatibility.
 ## Included
 
 - Per-client network authorization and request quotas.
+- Optional pinned OIDC identity, native mutual TLS and Redis quotas shared by replicas.
+- Durable per-issuer CRL checkpoints and a SQLite audit outbox with acknowledged HTTPS delivery.
 - Pinned Ed25519 authority keys, required roles, fresh signed CRLs and sequence checks.
 - Native Rust CRL refresh from configured authority endpoints every sixty seconds.
 - Cancellation-safe worker limits, bounded bodies/batches, request deadlines.
@@ -22,6 +24,9 @@ canonical JSON and signature compatibility.
 - 59 scoped Network Authority operations across all seven SDK service areas,
   enrollment, discovery, treaties and administration, with browser-side operator signing.
 - Non-root container with read-only filesystem and constrained resources.
+
+See [platform controls](docs/platform.md) for activation, persistent-volume bootstrap,
+secrets-manager mounts, recovery tests and external production acceptance gates.
 
 ## API
 

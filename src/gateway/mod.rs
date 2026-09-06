@@ -6,14 +6,19 @@
 //! CPU work runs under separate HTTP, CPU and batch budgets. Worker permits
 //! remain owned by running jobs after request cancellation.
 
+mod audit_delivery;
 mod config;
+pub mod durable;
 mod error;
 mod handlers;
 mod mesh;
+pub mod oidc;
+pub mod quota;
 mod runtime;
 pub mod security;
 mod services;
 mod sync;
+mod tls;
 mod ui;
 
 use std::sync::Arc;
@@ -41,6 +46,7 @@ pub struct AppState {
     instance_id: Arc<str>,
     metrics: Arc<runtime::Metrics>,
     quotas: Arc<Vec<runtime::Window>>,
+    audit_workers: Arc<Semaphore>,
     dev_token_digest: Option<[u8; 32]>,
     authority_http: reqwest::Client,
     mesh_cache: Arc<tokio::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>>>,
@@ -78,6 +84,7 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         instance_id: uuid::Uuid::new_v4().simple().to_string().into(),
         metrics: Arc::default(),
         quotas: Arc::new(quotas),
+        audit_workers: Arc::new(Semaphore::new(cfg.max_inflight)),
         inflight: Arc::new(Semaphore::new(cfg.max_inflight)),
         cfg: Arc::new(cfg),
         dev_token_digest,
@@ -146,9 +153,30 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let addr = cfg.addr;
+    let tls = tls::from_env()?;
     let (app, state) = build_router(cfg);
-    let refresh = sync::start(state.security.clone());
+    let refresh = sync::start(state.security.clone(), state.cfg.durable.clone());
+    let audit_delivery = audit_delivery::start(state.cfg.durable.clone())?;
 
+    if let Some(tls) = tls {
+        let handle = axum_server::Handle::new();
+        let shutdown = handle.clone();
+        let signal = tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(30)));
+        });
+        let result = axum_server::bind_rustls(addr, tls)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await;
+        signal.abort();
+        if let Some(delivery) = audit_delivery {
+            delivery.abort();
+        }
+        refresh.abort();
+        result?;
+        return Ok(());
+    }
     let listener = TcpListener::bind(addr).await?;
     tracing::info!(%addr, "listening");
 
@@ -157,6 +185,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     refresh.abort();
+    if let Some(delivery) = audit_delivery {
+        delivery.abort();
+    }
     Ok(())
 }
 

@@ -13,6 +13,11 @@ fn main() {
 fn start() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        [arg] if arg == "--init-state" => {
+            genesis_mesh::gateway::Config::initialize_state()?;
+            println!("Durable state initialized from verified operator policy");
+            return Ok(());
+        }
         [arg] if arg == "--version" => {
             println!("genesis-mesh-gateway {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
@@ -23,7 +28,7 @@ fn start() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             return Ok(());
         }
         [arg] if arg == "--help" => {
-            println!("genesis-mesh-gateway [--version | --check-config | --help]\nConfigure with GATEWAY_POLICY_FILE. See docs/distribution.md.");
+            println!("genesis-mesh-gateway [--version | --check-config | --init-state | --help]\nConfigure with GATEWAY_POLICY_FILE. --init-state creates new durable state exactly once. --check-config requires exclusive state access when GATEWAY_STATE_FILE is set. See docs/platform.md.");
             return Ok(());
         }
         [] => {}

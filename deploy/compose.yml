@@ -7,6 +7,9 @@ services:
     environment:
       GATEWAY_ADDR: 0.0.0.0:8080
       GATEWAY_POLICY_FILE: /run/gateway/policy.json
+      GATEWAY_STATE_FILE: /var/lib/gateway/state.db
+      GATEWAY_REDIS_URL_FILE: /run/gateway/redis.url
+      GATEWAY_QUOTA_NAMESPACE: ${GATEWAY_QUOTA_NAMESPACE:?Set the shared organization quota namespace}
       GATEWAY_MAX_INFLIGHT: "32"
       GATEWAY_CPU_WORKERS: "2"
       GATEWAY_MAX_BATCH_JOBS: "1"
@@ -16,6 +19,8 @@ services:
       RUST_LOG: info
     volumes:
       - ${GATEWAY_POLICY_FILE:?Set GATEWAY_POLICY_FILE to an absolute policy path}:/run/gateway/policy.json:ro
+      - ${GATEWAY_REDIS_URL_FILE:?Set GATEWAY_REDIS_URL_FILE to an absolute secret path}:/run/gateway/redis.url:ro
+      - gateway-state:/var/lib/gateway
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8080}:8080"
     read_only: true
@@ -28,3 +33,6 @@ services:
     logging:
       driver: json-file
       options: {max-size: 10m, max-file: "5"}
+
+volumes:
+  gateway-state:

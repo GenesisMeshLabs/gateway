@@ -25,7 +25,8 @@ FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 gateway
+ && useradd --system --uid 10001 gateway \
+ && mkdir /var/lib/gateway && chown 10001:10001 /var/lib/gateway
 COPY --from=build /usr/local/bin/genesis-mesh-gateway /usr/local/bin/genesis-mesh-gateway
 COPY --from=build /usr/local/bin/genesis-mesh-operator /usr/local/bin/genesis-mesh-operator
 USER gateway

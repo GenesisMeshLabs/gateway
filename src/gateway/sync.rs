@@ -47,32 +47,41 @@ fn prepare_snapshot(
     }
     let mut candidate = network;
     candidate.crl = crl;
-    if !candidate.ready(chrono::Utc::now()) || !candidate.authentic() {
+    if !candidate.primary_ready(chrono::Utc::now()) || !candidate.authentic() {
         return Err("untrusted snapshot".into());
     }
     candidate.rebuild_crypto_cache();
     Ok(candidate)
 }
 
-pub(super) async fn refresh(store: &ArcSwapOption<SecurityPolicy>, client: &reqwest::Client) {
+pub(super) async fn refresh(
+    store: &ArcSwapOption<SecurityPolicy>,
+    client: &reqwest::Client,
+    durable: Option<&Arc<super::durable::DurableState>>,
+) {
     let Some(current) = store.load_full() else {
         return;
     };
     // At most two fetch/prepare jobs per replica. No task per configured network.
-    let mut sources = current.networks.iter().filter_map(|(name, network)| {
-        network
-            .crl_url
-            .as_ref()
-            .map(|url| (name.clone(), url.clone(), network.clone()))
-    });
+    let mut sources = std::collections::VecDeque::new();
+    for (name, network) in &current.networks {
+        for source in
+            std::iter::once(network).chain(network.additional_issuers.values().map(Box::as_ref))
+        {
+            if let Some(url) = &source.crl_url {
+                sources.push_back((name, url, source));
+            }
+        }
+    }
     let mut jobs = tokio::task::JoinSet::new();
     let mut updated = (*current).clone();
     let mut changed = false;
     loop {
         while jobs.len() < 2 {
-            let Some((name, url, network)) = sources.next() else {
+            let Some((name, url, network)) = sources.pop_front() else {
                 break;
             };
+            let (name, url, network) = (name.clone(), url.clone(), network.clone());
             let client = client.clone();
             jobs.spawn(async move { (name, fetch_snapshot(&client, &url, network).await) });
         }
@@ -81,8 +90,31 @@ pub(super) async fn refresh(store: &ArcSwapOption<SecurityPolicy>, client: &reqw
         };
         match result {
             Ok((name, Ok(candidate))) => {
+                if let Some(durable) = durable {
+                    let durable = durable.clone();
+                    let persisted = candidate.clone();
+                    let network_name = name.clone();
+                    if !matches!(
+                        tokio::task::spawn_blocking(
+                            move || durable.checkpoint(&network_name, &persisted)
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    ) {
+                        tracing::error!(target:"audit", "CRL persistence failed; refusing to publish snapshot");
+                        continue;
+                    }
+                }
                 tracing::info!(target:"audit", network = %name, sequence = candidate.crl.sequence, "authority snapshot synchronized");
-                updated.networks.insert(name, candidate);
+                let network = updated.networks.get_mut(&name).expect("configured network");
+                if candidate.crl.issuer == network.crl.issuer {
+                    network.crl = candidate.crl;
+                    network.rebuild_crypto_cache();
+                } else {
+                    network
+                        .additional_issuers
+                        .insert(candidate.crl.issuer.clone(), Box::new(candidate));
+                }
                 changed = true;
             }
             _ => {
@@ -95,7 +127,10 @@ pub(super) async fn refresh(store: &ArcSwapOption<SecurityPolicy>, client: &reqw
     }
 }
 
-pub(super) fn start(store: Arc<ArcSwapOption<SecurityPolicy>>) -> tokio::task::JoinHandle<()> {
+pub(super) fn start(
+    store: Arc<ArcSwapOption<SecurityPolicy>>,
+    durable: Option<Arc<super::durable::DurableState>>,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let client = reqwest::Client::builder()
             .no_proxy()
@@ -106,7 +141,7 @@ pub(super) fn start(store: Arc<ArcSwapOption<SecurityPolicy>>) -> tokio::task::J
             .build()
             .expect("Rustls HTTP client");
         loop {
-            refresh(&store, &client).await;
+            refresh(&store, &client, durable.as_ref()).await;
             tokio::time::sleep(Duration::from_secs(60)).await;
         }
     })
@@ -157,6 +192,7 @@ mod tests {
             networks: [(
                 "mesh".into(),
                 NetworkPolicy {
+                    additional_issuers: Default::default(),
                     public_mesh: false,
                     authority_url: None,
                     anchors: [("authority".into(), key.public_key_b64())].into(),
@@ -181,20 +217,20 @@ mod tests {
         crl.signatures.clear();
         crl.sign(&key, "authority").unwrap();
         *response.write().unwrap() = crl.clone();
-        refresh(&store, &client).await;
+        refresh(&store, &client, None).await;
         assert_eq!(store.load_full().unwrap().networks["mesh"].crl.sequence, 2);
         crl.sequence = 1;
         crl.signatures.clear();
         crl.sign(&key, "authority").unwrap();
         *response.write().unwrap() = crl.clone();
-        refresh(&store, &client).await;
+        refresh(&store, &client, None).await;
         assert_eq!(store.load_full().unwrap().networks["mesh"].crl.sequence, 2);
         crl.sequence = 3;
         crl.signatures.clear();
         crl.sign(&KeyPair::generate().unwrap(), "authority")
             .unwrap();
         *response.write().unwrap() = crl;
-        refresh(&store, &client).await;
+        refresh(&store, &client, None).await;
         assert_eq!(store.load_full().unwrap().networks["mesh"].crl.sequence, 2);
         server.abort();
     }

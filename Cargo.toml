@@ -1,6 +1,6 @@
 [package]
 name = "genesis-mesh-gateway"
-version = "0.56.3"
+version = "0.57.0"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
@@ -52,9 +52,17 @@ uuid = { version = "1", features = ["v4"] }
 tracing-appender = "0.2"
 arc-swap = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+fs2 = "0.4.3"
+jsonwebtoken = "9"
+redis = { version = "0.27", features = ["tokio-rustls-comp", "tls-rustls-webpki-roots", "connection-manager"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-pemfile = "2"
 
 [dev-dependencies]
 http-body-util = "0.1"
+rcgen = "0.13"
 
 [profile.release]
 strip = true
