@@ -47,6 +47,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
     };
     crl.sign(&key, "authority").unwrap();
     let network = NetworkPolicy {
+        public_mesh: false,
         authority_url: None,
         crl_url: None,
         allow_http: false,
@@ -725,4 +726,47 @@ async fn every_catalog_operation_is_documented_in_openapi() {
         );
         assert!(spec["paths"].get(path).is_some());
     }
+}
+
+#[tokio::test]
+async fn public_mesh_is_opt_in_and_never_exposes_private_policy() {
+    let (status, body) = call(&router(fixture().0), "/v1/mesh", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["networks"], json!([]));
+    assert!(!body.to_string().contains("public-agency"));
+    assert!(!body.to_string().contains(TOKEN));
+}
+
+#[tokio::test]
+async fn public_mesh_marks_failed_upstreams_and_coalesces_refreshes() {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = calls.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(move || {
+        let observed = observed.clone();
+        async move {
+            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            (StatusCode::INTERNAL_SERVER_ERROR, "private diagnostics")
+        }
+    }))
+    .await;
+    let mut cfg = service_fixture(&origin);
+    cfg.security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .public_mesh = true;
+    let app = router(cfg);
+    let (status, body) = call(&app, "/v1/mesh", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["networks"][0]["available"], false);
+    assert_eq!(body["links"], json!([]));
+    assert!(!body.to_string().contains("private diagnostics"));
+    assert!(!body.to_string().contains(&origin));
+    assert!(!body.to_string().contains("anchors"));
+    let (_, again) = call(&app, "/v1/mesh", None, None).await;
+    assert_eq!(body, again);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    task.abort();
 }

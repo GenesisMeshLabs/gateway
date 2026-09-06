@@ -50,9 +50,26 @@ pub fn to_canonical_json_excluding<T: Serialize + ?Sized>(
 
 /// Render an already-parsed [`Value`] in canonical form.
 pub fn canonicalize(value: &Value) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(estimate_len(value));
     write_value(value, &mut out);
     out
+}
+
+// Adapted from the latency branch: reserve once before rendering nested JSON.
+fn estimate_len(value: &Value) -> usize {
+    match value {
+        Value::Null => 4,
+        Value::Bool(_) => 5,
+        Value::Number(_) => 24,
+        Value::String(s) => s.len() + 2,
+        Value::Array(items) => 2 + items.iter().map(estimate_len).sum::<usize>() + items.len(),
+        Value::Object(map) => {
+            2 + map
+                .iter()
+                .map(|(k, v)| k.len() + 4 + estimate_len(v))
+                .sum::<usize>()
+        }
+    }
 }
 
 fn kind_of(v: &Value) -> &'static str {
@@ -85,18 +102,28 @@ fn write_value(value: &Value, out: &mut String) {
             out.push(']');
         }
         Value::Object(map) => {
-            // Sort by Unicode code point, matching Python's sort_keys=True.
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort_unstable();
             out.push('{');
-            for (i, key) in keys.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
+            // The default BTreeMap already has canonical order. Preserve correctness
+            // if a downstream crate enables serde_json's preserve_order feature.
+            if map.keys().is_sorted() {
+                for (i, (key, value)) in map.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_string(key, out);
+                    out.push(':');
+                    write_value(value, out);
                 }
-                write_string(key, out);
-                out.push(':');
-                if let Some(v) = map.get(*key) {
-                    write_value(v, out);
+            } else {
+                let mut keys: Vec<_> = map.keys().collect();
+                keys.sort_unstable();
+                for (i, key) in keys.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_string(key, out);
+                    out.push(':');
+                    write_value(&map[*key], out);
                 }
             }
             out.push('}');

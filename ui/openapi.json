@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Genesis Mesh Trust Gateway",
-    "version": "0.56.1",
+    "version": "0.56.2",
     "description": "Operator-controlled Genesis Mesh trust verification. HTTP 200 is not a trust grant; inspect trusted in each decision."
   },
   "servers": [
@@ -4994,6 +4994,17 @@
           },
           "502": {
             "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/mesh": {
+      "get": {
+        "summary": "Opt-in public live mesh overview",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Public domains, active directed treaties and explicitly published memberships. Cached for 20 seconds; unavailable authorities are marked."
           }
         }
       }

@@ -85,3 +85,7 @@ bundles, configuration validation and Kubernetes rolling deployments. The
 
 See [authority services](docs/services.md) for the full service catalog, browser
 workflow, per-client permissions and authority persistence requirements.
+
+### Live mesh
+
+The console includes an opt-in public mesh visualization of live authorities, directed recognition treaties and explicitly published signed memberships. See [mesh operations](docs/mesh.md) for publication controls, demo setup and the latency branch review.

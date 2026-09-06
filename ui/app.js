@@ -1,6 +1,8 @@
+import './mesh.js';
 import {operatorHeaders} from './signing.js';
 const $ = id => document.getElementById(id);
 const core = [
+  {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
   {id:'health',method:'GET',path:'/health',name:'Liveness',description:'Check whether the gateway process is running.',public:true},
   {id:'ready',method:'GET',path:'/ready',name:'Trust readiness',description:'Check freshness of the gateway revocation snapshots.',public:true},
   {id:'api',method:'GET',path:'/api',name:'Service information',description:'Gateway version and service routes.',public:true},

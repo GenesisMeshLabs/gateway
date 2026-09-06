@@ -9,6 +9,7 @@
 mod config;
 mod error;
 mod handlers;
+mod mesh;
 mod runtime;
 pub mod security;
 mod services;
@@ -42,6 +43,7 @@ pub struct AppState {
     quotas: Arc<Vec<runtime::Window>>,
     dev_token_digest: Option<[u8; 32]>,
     authority_http: reqwest::Client,
+    mesh_cache: Arc<tokio::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>>>,
 }
 
 /// Build the gateway router. Exposed for in-process testing.
@@ -60,6 +62,7 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         Sha256::digest(token.as_bytes()).into()
     });
     let state = AppState {
+        mesh_cache: Arc::default(),
         authority_http: reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -84,9 +87,11 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         .route("/", get(ui::page))
         .route("/assets/app.js", get(ui::script))
         .route("/assets/signing.js", get(ui::signing_script))
+        .route("/assets/mesh.js", get(mesh::script))
         .route("/assets/style.css", get(ui::style))
         .route("/api", get(handlers::index))
         .route("/v1/services", get(services::catalog))
+        .route("/v1/mesh", get(mesh::overview))
         .route("/openapi.json", get(ui::specification))
         .route("/health", get(handlers::health))
         .route("/ready", get(runtime::ready));

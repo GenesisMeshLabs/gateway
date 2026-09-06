@@ -56,6 +56,9 @@ pub struct Client {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NetworkPolicy {
+    /// Publish a minimal read-only topology for this network. Private by default.
+    #[serde(default)]
+    pub public_mesh: bool,
     /// Operator-pinned authority origin used by the explicit service allowlist.
     #[serde(default)]
     pub authority_url: Option<String>,
