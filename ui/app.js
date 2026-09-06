@@ -58,7 +58,8 @@ async function request(path,options={}){
 function resetSession(){
   sessionGeneration++;session=null;connectedToken='';lastResult=undefined;
   $('network-select').replaceChildren(new Option('Connect to load networks',''));
-  $('network-data').replaceChildren(node('p','Enter a service token and connect to load your networks.'));
+  $('network-data').replaceChildren(node('p','Enter a service token and select Load networks.'));
+  $('network-state').textContent='Enter your token here, then select Load networks. The public mesh above needs no token.';
   $('response').textContent='Session data cleared.';$('request-id').textContent='';
   $('operator-seed').value='';$('signed-headers').value='';renderEndpoints();
 }
@@ -67,11 +68,12 @@ async function connect(){
   const generation=sessionGeneration;
   const {response,data}=await request('/v1/networks',{headers:{Authorization:'Bearer '+token}});
   if(generation!==sessionGeneration||token!==$('token').value.trim())throw new Error('Credentials changed. Connect again.');
-  if(!response.ok)throw new Error(data.error||'Connection rejected ('+response.status+')');
+  if(!response.ok)throw new Error((typeof data.error==='string'?data.error:data.error?.message)||'Connection rejected ('+response.status+')');
   session=data;connectedToken=token;
   $('network-select').replaceChildren(...data.networks.map(n=>new Option(n.name+(n.services_configured?'':' (services unavailable)'),n.name)));
   renderNetworks(data);$('path').textContent=destination();renderEndpoints();
   $('request-state').textContent='Connected as '+data.client_id;
+  $('network-state').textContent='Loaded '+data.networks.length+' networks. Connected as '+data.client_id+'.';
 }
 function renderNetworks(data){
   const container=$('network-data');container.replaceChildren();container.className='network-list';
@@ -121,10 +123,27 @@ async function send(){
 }
 $('endpoint-search').addEventListener('input',renderEndpoints);$('service-group').addEventListener('change',renderEndpoints);
 $('network-select').addEventListener('change',()=>{$('operator-seed').value='';$('signed-headers').value='';$('path').textContent=destination();});
-$('token').addEventListener('input',resetSession);
+for(const id of ['token','network-token'])$(id).addEventListener('input',()=>{const value=$(id).value;$('token').value=value;$('network-token').value=value;resetSession();});
 $('send').addEventListener('click',send);
-for(const id of ['connect','load-networks'])$(id).addEventListener('click',()=>connect().catch(e=>$('request-state').textContent=e.message));
-$('clear-token').addEventListener('click',()=>{$('token').value='';resetSession();});
+let connecting=false;
+async function connectWithFeedback(field){
+  if(connecting)return;
+  if(!$(field).value.trim()){
+    $('network-state').textContent='A bearer token is required for protected network details. Paste it in the Network access token field.';
+    $('request-state').textContent='Enter a service token first.';
+    $(field).focus();return;
+  }
+  connecting=true;$('load-networks').disabled=true;$('connect').disabled=true;
+  $('load-networks').textContent='Loading networks...';$('network-state').textContent='Loading your authorized networks...';
+  const generation=sessionGeneration;
+  try{await connect();}
+  catch(error){if(generation===sessionGeneration){$('network-state').textContent='Could not load networks: '+error.message;$('request-state').textContent=error.message;}}
+  finally{connecting=false;$('load-networks').disabled=false;$('connect').disabled=false;$('load-networks').textContent='Load networks';}
+}
+$('connect').addEventListener('click',()=>connectWithFeedback('token'));
+$('load-networks').addEventListener('click',()=>connectWithFeedback('network-token'));
+for(const id of ['token','network-token'])$(id).addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();connectWithFeedback(id);}});
+for(const id of ['clear-token','clear-network-token'])$(id).addEventListener('click',()=>{$('token').value='';$('network-token').value='';resetSession();});
 $('reset-body').addEventListener('click',()=>{$('request-body').value=JSON.stringify(example(selected.body),null,2);updateInsertFields();});
 $('request-body').addEventListener('input',updateInsertFields);
 $('reuse-response').addEventListener('click',()=>{try{if(lastResult===undefined)throw new Error('Send a successful request first.');const body=JSON.parse($('request-body').value), field=$('insert-field').value;if(!field)throw new Error('Choose a destination field.');body[field]=structuredClone(lastResult);$('request-body').value=JSON.stringify(body,null,2);}catch(e){$('request-state').textContent=e.message;}});
