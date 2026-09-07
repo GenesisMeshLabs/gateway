@@ -215,6 +215,10 @@ mod tests {
             ("sub", serde_json::json!("unknown")),
             ("exp", serde_json::json!(now - 60)),
             ("nbf", serde_json::json!(now + 300)),
+            ("nbf", serde_json::json!((now + 300).to_string())),
+            ("nbf", serde_json::json!(null)),
+            ("nbf", serde_json::json!({"value": now + 300})),
+            ("exp", serde_json::json!((now + 300).to_string())),
             ("department", serde_json::json!("other")),
         ] {
             let mut bad = claims.clone();

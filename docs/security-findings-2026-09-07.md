@@ -13,13 +13,14 @@ under `.local/security-scan`; they are not bundled with credentials in releases.
 | Certificate identifiers printed by verification CLI (2 CodeQL findings) | Removed unnecessary identifier output, retaining decision/reasons. CodeQL Rust retest resolved both findings. |
 | Certificate diagnostics in two fixture tests | Removed unnecessary fixture dumps. These were test-only findings, not demonstrated production secret leaks. CodeQL retest resolved them. |
 | Operator token-file to HTTP flows in probe scripts (3 CodeQL findings) | Intentional authentication, manually triaged: files and destinations are explicit local operator inputs; no server request controls either. Security probe restricted to loopback; SLO probe requires HTTPS except loopback; redirects prohibited. Tokens never enter reports. These findings are false positives for exfiltration, not vulnerabilities fixed by suppressing a scanner. |
+| JWT claim type confusion, CVE-2026-25537 (medium) | Reproduced malformed signed `nbf` acceptance in jsonwebtoken 9.3.1, despite a passing Cargo audit. Upgraded to 10.4.0 with the AWS-LC backend; added malformed claim regressions and a second dependency scanner gate. OIDC remains disabled on this deployment. See the [upstream advisory](https://github.com/Keats/jsonwebtoken/security/advisories/GHSA-h395-gr6q-cpjc). |
 | Runtime OS packages: 310 advisory occurrences, including 4 critical and 63 high | Replaced Debian 12/curl/shell runtime with digest-pinned distroless Debian 13 and native bounded health probe. Final image: 20 occurrences, 13 medium/7 low, **zero high/critical**, zero secrets. Remaining advisories are listed below, not hidden by an ignore file. |
 | Missing Permissions Policy and browser isolation headers | Added explicit permission denial, COOP, COEP and CORP. ZAP retest: 66 rule passes, zero failures, only the intentional non-storable-content warning. Same-origin console assets remain allowed. |
 | Non-storable content | Intentional `Cache-Control: no-store` to protect operator responses; retain it. Not a security defect. |
 | Kubernetes default namespace (low) and placeholder registry (medium) | Distribution-template findings, not a live Kubernetes deployment. Namespace and trusted registry/admission must be chosen by the installing organization; registry admission remains P1. No claim these organizational settings are activated. |
 
 Trivy 0.74.0 scanned exported images without Docker control-socket access or live
-secret mounts. Final local image digest:
+secret mounts. Interim v0.57.1 local image digest (superseded by v0.57.2 after the JWT finding):
 `sha256:f2638268fa25348ec035dd20aad556e10303a6c8a4b2f58e1bc82114873a3eab`.
 The scanner did not extract Rust dependencies from the stripped executable;
 locked Cargo audit is a separate required check. OS advisory occurrence counts
@@ -38,7 +39,7 @@ are package findings, not counts of remotely exploitable gateway defects.
   and foreign clients, quota failure, proxy redirects/path injection and public
   projection privacy. Browser signing interoperability also passed.
 - Native image health probe passed; actual container became healthy. Local and
-  public `/api` report 0.57.1, `/ready` is ready, four networks are available, and
+  public `/api` report the tested release, `/ready` is ready, four networks are available, and
   retired operator credentials still return 401 after deployment.
 - The ZAP baseline covers eight discovered public URLs; it is passive and cannot
   substitute for authenticated API abuse testing or an independent pentest.
@@ -49,7 +50,7 @@ are package findings, not counts of remotely exploitable gateway defects.
 
 CodeQL Rust/JavaScript/Actions runs on pushes/PRs and weekly. Locked Cargo audit
 and security regressions remain CI gates. The container/secret workflow runs
-weekly or on demand, retains full reports, and fails for high/critical runtime
+weekly or on demand, retains full reports, and fails for any known locked Rust dependency vulnerability, high/critical runtime
 advisories or exposed secrets. Dependabot proposes updates to pinned inputs.
 Review lower findings too; scanner success alone is not an acceptance decision.
 

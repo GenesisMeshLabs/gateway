@@ -3,9 +3,16 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ['*']}
+    open-pull-requests-limit: 2
   - package-ecosystem: cargo
     directory: /
     schedule: {interval: weekly}
+    groups:
+      compatible: {patterns: ['*'], update-types: [minor, patch]}
+    open-pull-requests-limit: 2
   - package-ecosystem: docker
     directory: /
     schedule: {interval: weekly}
+    open-pull-requests-limit: 2

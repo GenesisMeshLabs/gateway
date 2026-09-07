@@ -147,3 +147,7 @@ image digest/signature, policy schema, OpenAPI, federation runbook and test logs
 Scope issuer confusion, JWT rotation, quotas during backend failure, ingress
 bypass, signed-operation replay, audit exhaustion, storage recovery and private
 mesh data isolation. Record findings and remediation before accreditation.
+
+## Minimal runtime health probe
+
+From 0.57.1 the container uses a digest-pinned distroless runtime without curl or a shell. Its exec healthcheck runs the gateway's bounded local HTTP --healthcheck command. Native mTLS deployments must supply a compatible client-certificate probe; this HTTP probe fails against a TLS-only listener and does not create an unauthenticated bypass. The default Cloudflare-origin HTTP deployment uses the native probe.

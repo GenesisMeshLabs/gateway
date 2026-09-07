@@ -1,10 +1,10 @@
 [package]
 name = "genesis-mesh-gateway"
-version = "0.57.1"
+version = "0.57.2"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
-description = "Concurrent HTTP gateway for Genesis Mesh portable trust â€” Ed25519 identities, signed join certificates, revocation, and trust evaluation, implemented in Rust and exposed as a JSON API."
+description = "Concurrent HTTP gateway for Genesis Mesh portable trust: Ed25519 identities, signed join certificates, revocation, and trust evaluation, implemented in Rust and exposed as a JSON API."
 repository = "https://github.com/GenesisMeshLabs/gateway"
 readme = "README.md"
 keywords = ["genesis-mesh", "trust", "gateway", "ed25519", "mesh"]
@@ -54,7 +54,7 @@ arc-swap = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 fs2 = "0.4.3"
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs"] }
 redis = { version = "0.27", features = ["tokio-rustls-comp", "tls-rustls-webpki-roots", "connection-manager"] }
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
