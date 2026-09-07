@@ -35,7 +35,7 @@ not an individual person; do not distribute it as a shared workforce login.
   this decision does not claim end-to-end mTLS.
 - Assign credential ownership and a rotation schedule in the deployment's
   operational inventory. Bearer tokens currently have no automatic expiry.
-  These ownership/schedule records and rotation acceptance remain ops work.
+  The 2026-09-07 rotation and role-based schedule are recorded in ../acceptance-2026-09-07.md; named organizational handover remains.
 - Rotate through a short overlap: add a replacement client ID with minimal
   equivalent scope, deploy to every replica, switch the caller, then remove the
   old ID and deploy again. Distinct IDs have separate Redis allowances during
@@ -76,3 +76,7 @@ The authentication choice is now explicit. Credential lifecycle acceptance,
 P0 canary/revocation/restart recovery, external secrets-provider activation and
 independent security assessment remain separate gates in the
 [improvement plan](../improvement-plan.md).
+
+## 2026-09-07 acceptance update
+
+The replacement-identity rotation, retired-token 401 checks on every existing replica, canary revocation/restart and offline backup restore have now passed. See [acceptance evidence](../acceptance-2026-09-07.md), which supersedes the earlier unexecuted lifecycle/recovery status above. Organization offboarding and external identity activation remain outside this evidence.

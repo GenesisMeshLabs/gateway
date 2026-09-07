@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {performance} from 'node:perf_hooks';
 const urls = (process.env.GATEWAY_TEST_URLS || 'http://127.0.0.1:8080').split(',').map(s => new URL(s));
 if (urls.some(u => !['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash || u.pathname !== '/')) throw Error('Use gateway origins without credentials');
+if (urls.some(u => u.protocol === 'http:' && !['127.0.0.1', '[::1]', 'localhost'].includes(u.hostname))) throw Error('Bearer probes require HTTPS except on loopback');
 const token = (await readFile(process.env.GATEWAY_TEST_TOKEN_FILE, 'utf8')).trim();
 const count = Number(process.env.GATEWAY_TEST_REQUESTS || 100);
 const concurrency = Number(process.env.GATEWAY_TEST_CONCURRENCY || 4);

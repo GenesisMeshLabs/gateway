@@ -46,10 +46,10 @@ and its image-admission policy remain separate tasks.
 
 | Priority | Remaining work | Acceptance evidence |
 | --- | --- | --- |
-| P0 | Complete credential lifecycle acceptance | Scoped bearers selected for this deployment in ADR 0001; assign credential owners/rotation schedules and verify replacement/old-token rejection on every replica. Organization OIDC/PKI activation applies when the ADR's migration conditions arise |
-| P0 | Complete operational recovery acceptance | Revoke a dedicated canary, observe denial, restart the relevant gateway/consumers, confirm retained floors and continued denial; distinguish gateway JoinCRLs from authority membership feeds |
-| P0 | Protect and recover persistent storage | Consistent backups, tested restore, protected external sequence records and issuer-key rotation procedure; never reinitialize lost state to regain readiness |
-| P0 | Define audit retention and integrity requirements | Size/alert on the local sink; if required, activate an independently controlled collector, verify durable acknowledgements, retries and retention; local SQLite is not WORM storage |
+| P0 | Credential lifecycle handover | Rotation drill passed on every existing replica and ingress; 30-day schedule recorded. Named organizational owner handover remains; see [acceptance evidence](acceptance-2026-09-07.md) |
+| Done | Canary revoke and process restart | Separate membership and JoinCRL drills passed, including all consumers and retained denial/floors; see [acceptance evidence](acceptance-2026-09-07.md) |
+| P0 | Automate recurring protected backups | Live consistent backup, isolated offline restore and off-host floor record passed. Daily/monthly retention is defined; recurring backup automation and authority key recovery remain operator work |
+| P0 | Organizational audit monitoring activation | Local retention and 70/85-percent capacity alarm installed. Unattended monitoring/paging and independent collector integrity require organization activation; SQLite is not WORM |
 | P1 | Activate an organization secrets provider | Real provider configuration, least-privilege workload identity, mounted secrets and controlled rotation; a CSI fragment alone is not a vault deployment |
 | P1 | Sign off deployment-specific availability and capacity | Load/soak tests, mixed verification and authority traffic, replica/backend failure drills, Redis HA loss semantics and measured recovery objectives; local Redis remains a single availability dependency |
 | P1 | Adopt release artifacts in the organization | Verify archive signatures and SBOMs, scan/import images, enforce approved digests and registry/admission policy |
@@ -72,10 +72,7 @@ its CRL floors and audit records, and a separate two-replica local read workload
 passed 100 requests at concurrency four with p99 42.74 ms. Neither establishes
 a production SLO or proves survival of backend failover.
 
-The isolated replica stop/start drill was blocked by automatic approval review
-and remains unverified. The complete membership revoke/propagate/restart
-checklist is in [federation operations](federation.md); its consumer restart
-acceptance must not be inferred from matching feed sequence numbers.
+The explicitly authorized live gateway and consumer restart, canary denial and offline restore drills passed on 2026-09-07. See [executed acceptance evidence](acceptance-2026-09-07.md). This supersedes the earlier blocked restart status.
 
 Avoid adding speculative post-quantum algorithms to the wire format: the
 Genesis Mesh protocol authority must define algorithm negotiation and migration

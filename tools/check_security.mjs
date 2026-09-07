@@ -1,6 +1,7 @@
 // Bounded negative tests. Run against an isolated production-mode replica.
 // Token files and certificate fixture are local operator inputs; never printed.
 import {readFile, writeFile} from 'node:fs/promises';
+import {request} from 'node:http';
 const origin = new URL(process.env.GATEWAY_SECURITY_URL || 'http://127.0.0.1:18083');
 if (!['127.0.0.1', '[::1]', 'localhost'].includes(origin.hostname) || origin.protocol !== 'http:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw Error('Use an isolated loopback HTTP origin');
 const secret = async name => (await readFile(process.env[name], 'utf8')).trim();
@@ -26,7 +27,19 @@ await check('production key generation unavailable', '/keygen', {token: operator
 await check('production issuance unavailable', '/issue', {token: operator, method: 'POST', body: {}, expected: 404});
 await check('wrong verification method', '/verify', {token: operator, expected: 405});
 await check('malformed JSON rejected', '/verify', {token: operator, method: 'POST', body: '{', expected: 400});
-await check('oversized body rejected', '/verify', {token: operator, method: 'POST', body: ' '.repeat(1048577), expected: 413});
+// Expect/continue observes the rejection without racing a server socket close
+// while the client is still uploading an intentionally oversized body.
+await new Promise((resolve, reject) => {
+  const req = request(new URL('/verify', origin), {method: 'POST', headers: {Authorization: `Bearer ${operator}`, 'Content-Type': 'application/json', 'Content-Length': 1048577, Expect: '100-continue'}}, response => {
+    results.push({name: 'oversized body rejected', status: response.statusCode, expected: 413, pass: response.statusCode === 413});
+    response.resume();
+    response.on('end', resolve);
+  });
+  req.setTimeout(10000, () => req.destroy(Error('oversized request timed out')));
+  req.on('error', reject);
+  req.on('continue', () => req.end(' '.repeat(1048577)));
+  req.flushHeaders();
+});
 await check('empty batch rejected', '/verify/batch', {token: operator, method: 'POST', body: {certificates: []}, expected: 400});
 await check('caller trust anchor override rejected', '/verify', {token: operator, method: 'POST', body: {certificate, anchors: {'attacker': certificate.node_public_key}}, expected: 400});
 await check('cross-network verification rejected', '/verify', {token: operator, method: 'POST', body: {certificate: {...certificate, network_name: 'not-authorized'}}, expected: 403});
