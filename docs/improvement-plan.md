@@ -1,6 +1,6 @@
 # Gateway improvement plan
 
-Reviewed against gateway v0.57.0; authentication decision updated on 2026-09-07. These are
+Reviewed against gateway v0.57.2, including security and recovery acceptance on 2026-09-07. These are
 engineering controls, not claims of certification or universal production readiness.
 
 | Improvement | Delivery | Evidence |
@@ -14,7 +14,8 @@ engineering controls, not claims of certification or universal production readin
 | Operational visibility | Implemented | JSON audit events, request IDs, scoped Prometheus metrics, liveness and readiness |
 | API discoverability | Implemented | OpenAPI 3.1 description and an embedded responsive explorer with live responses |
 | Privacy in the console | Implemented | No browser credential persistence, same-origin requests, restrictive CSP, network data behind authorization |
-| Safer containers | Implemented | Non-root, read-only filesystem, dropped capabilities, process/memory/CPU limits and bounded log files |
+| Safer containers | Implemented | Digest-pinned distroless image, non-root/read-only execution, dropped capabilities, resource limits and bounded log files |
+| Security assessment | Executed; residual findings tracked | CodeQL, two dependency scanners, image/secret scans, authenticated negative tests and ZAP; [findings register](security-findings-2026-09-07.md) records fixes and remaining OS advisories |
 | Reproducible validation | Implemented | Locked dependencies, Python interoperability fixtures, security regression tests and Windows/Linux CI |
 | Public deployment | Implemented and verified | Existing Cloudflare tunnel to `mesh.genesismesh.org`; retain previous image for rollback |
 | Durable CRL high-water marks | Implemented; enabled in published deployment | Gateway-owned SQLite checkpoints, verified restore before serving, explicit first-time initialization and exclusive replica ownership |
@@ -24,10 +25,10 @@ engineering controls, not claims of certification or universal production readin
 | Shared quotas | Implemented; enabled in published deployment | Atomic Redis admission across replicas, persistent local Redis, backend failures deny admission rather than granting a local allowance |
 | Deployment authentication | Scoped bearers deliberately retained; OIDC/mTLS adapters available | [Authentication decision](adr/0001-deployment-authentication.md) records scope, lifecycle requirements and triggers for organization identity activation |
 | Secrets integration | Mounted-file support implemented; provider deployment pending | Read-only credentials and TLS files; CSI fragment requires an organization's provider, workload identity and access policy |
-| Signed distribution | Published and verified | v0.57.0 Windows/Linux ZIPs and AMD64/ARM64 OCI archive have verified Sigstore bundles and checksums; OCI includes SPDX SBOM and SLSA provenance |
+| Signed distribution | Published and verified | v0.57.2 Windows/Linux ZIPs and AMD64/ARM64 OCI archive have verified Sigstore bundles and checksums; OCI includes SPDX SBOM and SLSA provenance |
 
 Implementation and activation details are in [platform controls](platform.md).
-The [v0.57.0 release](https://github.com/GenesisMeshLabs/gateway/releases/tag/v0.57.0)
+The [v0.57.2 release](https://github.com/GenesisMeshLabs/gateway/releases/tag/v0.57.2)
 contains nine files: three archives and their checksums/signature bundles. These
 are signatures over archive bytes; publication into an organization's registry
 and its image-admission policy remain separate tasks.

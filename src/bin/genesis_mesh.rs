@@ -1,4 +1,4 @@
-//! `genesis-mesh` â€” command line access to the trust core.
+//! `genesis-mesh` - command line access to the trust core.
 //!
 //! Deliberately dependency-free argument parsing: the crate is meant to build
 //! on constrained edge targets, and a CLI arg parser is not worth a dependency

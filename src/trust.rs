@@ -207,7 +207,7 @@ pub fn verify_join_certificate(cert: &JoinCertificate, policy: &Policy<'_>) -> R
         if crl.issued_at > policy.now || policy.now >= crl.next_update {
             reasons.push(Reason::StaleRevocationList);
         }
-        // A malformed signature on the CRL is not a hard error â€” it just means
+        // A malformed signature on the CRL is not a hard error - it just means
         // the list is not trustworthy, exactly like an absent signature.
         // Production snapshots are authenticated at ingest; do not re-canonicalize.
         let crl_trusted = if policy.crl_preverified {

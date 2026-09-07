@@ -20,8 +20,8 @@ under `.local/security-scan`; they are not bundled with credentials in releases.
 | Kubernetes default namespace (low) and placeholder registry (medium) | Distribution-template findings, not a live Kubernetes deployment. Namespace and trusted registry/admission must be chosen by the installing organization; registry admission remains P1. No claim these organizational settings are activated. |
 
 Trivy 0.74.0 scanned exported images without Docker control-socket access or live
-secret mounts. Interim v0.57.1 local image digest (superseded by v0.57.2 after the JWT finding):
-`sha256:f2638268fa25348ec035dd20aad556e10303a6c8a4b2f58e1bc82114873a3eab`.
+secret mounts. Final v0.57.2 local image digest:
+`sha256:688bd6587fe18ca9ea7ffedf9cdd15d217808dc8590aecc208fe6141ac48a5ba`.
 The scanner did not extract Rust dependencies from the stripped executable;
 locked Cargo audit is a separate required check. OS advisory occurrence counts
 are package findings, not counts of remotely exploitable gateway defects.
@@ -90,3 +90,24 @@ WORM audit integrity or government accreditation is made.
 | CVE-2019-9192 | libc6 | LOW |
 | CVE-2026-27171 | zlib1g | MEDIUM |
 | CVE-2026-85091 | zlib1g | MEDIUM |
+
+## Final release evidence
+
+[v0.57.2](https://github.com/GenesisMeshLabs/gateway/releases/tag/v0.57.2) is
+published as Latest with nine assets. Windows/Linux archives and the multiarch
+OCI archive passed local checksum and Sigstore verification after download.
+The ARM64 manifest was separately selected from the signed archive for scanning;
+its reported architecture was verified as arm64. Both architectures report
+13 medium/7 low OS findings, zero high/critical findings and zero detected secrets.
+ARM64 native runtime execution remains outside this evidence.
+
+- [Windows/Linux CI, Clippy, dependency audit and shared quota](https://github.com/GenesisMeshLabs/gateway/actions/runs/34086195364): passed.
+- [CodeQL Rust/JavaScript/Actions](https://github.com/GenesisMeshLabs/gateway/actions/runs/34086195334): passed; zero open alerts after documented triage.
+- [Independent hosted source/image scan](https://github.com/GenesisMeshLabs/gateway/actions/runs/34086209000): passed; zero known Rust dependency vulnerabilities and zero secrets.
+- [Native/multiarch builds, signatures and publication](https://github.com/GenesisMeshLabs/gateway/actions/runs/34086214008): passed.
+
+The final image passed all 17 authenticated probes; forged-signature checks
+require an explicit BadSignature reason, so expiry alone cannot make the test
+pass. Live local and Cloudflare ingress report 0.57.2 and readiness; retired
+credentials return 401. The browser loaded all four protected networks using
+the rotated credential, then the test credential was cleared from the page.

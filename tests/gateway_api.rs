@@ -1,4 +1,4 @@
-//! In-process tests for the gateway router â€” no socket, no Docker.
+//! In-process tests for the gateway router - no socket, no Docker.
 
 use std::time::Duration;
 

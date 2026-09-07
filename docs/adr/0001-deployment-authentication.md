@@ -66,17 +66,12 @@ requires bearer/OIDC application authorization. See [platform controls](../platf
 
 ## Evidence and remaining gates
 
-On 2026-09-07, the published gateway reported OIDC disabled and shared quotas,
-durable audit and durable CRL state enabled. An unauthenticated protected-network
-request returned 401; the relay credential was denied metrics access with 403.
-These read-only checks verify the existing access boundary, not token rotation
-or organizational offboarding.
+On 2026-09-07, replacement identities were deployed to every existing gateway
+replica, callers switched, and retired tokens returned 401 everywhere including
+public ingress. Replacement relay metrics access remained denied with 403.
+Separate canary revocation, gateway/consumer restart and offline backup restore
+checks passed. See [executed acceptance](../acceptance-2026-09-07.md).
 
-The authentication choice is now explicit. Credential lifecycle acceptance,
-P0 canary/revocation/restart recovery, external secrets-provider activation and
-independent security assessment remain separate gates in the
-[improvement plan](../improvement-plan.md).
-
-## 2026-09-07 acceptance update
-
-The replacement-identity rotation, retired-token 401 checks on every existing replica, canary revocation/restart and offline backup restore have now passed. See [acceptance evidence](../acceptance-2026-09-07.md), which supersedes the earlier unexecuted lifecycle/recovery status above. Organization offboarding and external identity activation remain outside this evidence.
+The role-based credential inventory specifies a 30-day rotation schedule; named
+organization handover, external secrets-provider activation and independent
+security assessment remain separate gates. OIDC remains deliberately disabled.
