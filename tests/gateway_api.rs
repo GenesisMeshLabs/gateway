@@ -1,4 +1,4 @@
-//! In-process tests for the gateway router — no socket, no Docker.
+//! In-process tests for the gateway router â€” no socket, no Docker.
 
 use std::time::Duration;
 
@@ -79,7 +79,11 @@ async fn issue_cert() -> (String, Value) {
         })),
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "{cert}");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture certificate issuance failed"
+    );
     (auth_pub, cert)
 }
 

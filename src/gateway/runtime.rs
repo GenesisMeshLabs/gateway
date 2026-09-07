@@ -209,6 +209,19 @@ pub(super) async fn observe(
     response
         .headers_mut()
         .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    for (name, value) in [
+        (
+            "permissions-policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        ),
+        ("cross-origin-opener-policy", "same-origin"),
+        ("cross-origin-embedder-policy", "require-corp"),
+        ("cross-origin-resource-policy", "same-origin"),
+    ] {
+        response
+            .headers_mut()
+            .insert(name, HeaderValue::from_static(value));
+    }
     response
 }
 

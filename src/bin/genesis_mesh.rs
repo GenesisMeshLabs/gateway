@@ -1,4 +1,4 @@
-//! `genesis-mesh` — command line access to the trust core.
+//! `genesis-mesh` â€” command line access to the trust core.
 //!
 //! Deliberately dependency-free argument parsing: the crate is meant to build
 //! on constrained edge targets, and a CLI arg parser is not worth a dependency
@@ -166,9 +166,9 @@ fn verify_inner(args: &[String]) -> Result<bool, String> {
 
     let decision = verify_join_certificate(&cert, &policy).map_err(|e| e.to_string())?;
     if decision.trusted {
-        println!("trusted   {}", cert.cert_id);
+        println!("trusted");
     } else {
-        println!("UNTRUSTED {}", cert.cert_id);
+        println!("UNTRUSTED");
         for reason in &decision.reasons {
             println!("  - {reason:?}");
         }

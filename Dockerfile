@@ -20,18 +20,15 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=gateway-registry-${TA
  && cargo build --locked --release --target "$target" --bin genesis-mesh-gateway --bin genesis-mesh-operator \
  && cp "target/$target/release/genesis-mesh-gateway" /usr/local/bin/genesis-mesh-gateway \
  && cp "target/$target/release/genesis-mesh-operator" /usr/local/bin/genesis-mesh-operator
+RUN mkdir -p /var/lib/gateway
 
-FROM debian:bookworm-slim
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd --system --uid 10001 gateway \
- && mkdir /var/lib/gateway && chown 10001:10001 /var/lib/gateway
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c
+COPY --from=build --chown=10001:10001 /var/lib/gateway /var/lib/gateway
 COPY --from=build /usr/local/bin/genesis-mesh-gateway /usr/local/bin/genesis-mesh-gateway
 COPY --from=build /usr/local/bin/genesis-mesh-operator /usr/local/bin/genesis-mesh-operator
-USER gateway
+USER 10001:10001
 ENV GATEWAY_ADDR=0.0.0.0:8080
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+  CMD ["/usr/local/bin/genesis-mesh-gateway", "--healthcheck"]
 ENTRYPOINT ["/usr/local/bin/genesis-mesh-gateway"]
