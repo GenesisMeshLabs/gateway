@@ -4,24 +4,27 @@ The Rust gateway can run under Windows Service Control Manager without Docker
 or a signed-in desktop session. Use the verified Windows release executable;
 do not rebuild or initialize trust state as part of a runtime migration.
 
-**Acceptance status, 2026-09-11:** the native candidate passed readiness,
-four-network trust readiness, operator access and retired-token rejection.
-The quota backend admitted exactly 7 of 64 concurrent requests under a limit
-of 7, rejected unauthenticated access, and retained its counter and TTL after
-restart. Payload hashes and PowerShell syntax were checked. On retry, Windows accepted
-service registration, but the final backup failed because SQLite could not open
-the read-only Docker mount. Copying the stopped database directory and then
-using SQLite backup passed integrity checks. The second elevation request was
-canceled before final-state transfer or service startup. All ten native services
-are registered and stopped; the original Docker stack was restored and public
-readiness verified. Service-account execution, final-state transfer and recovery
-remain acceptance gates.
+**Acceptance status, 2026-09-11 19:38 UTC:** migration completed. All ten native
+services are Running with Automatic startup under LocalService. Local and public
+`/ready` return ready; all four mesh networks are trust-ready. Operator access
+returns 200 and retired credentials return 401 both locally and publicly. The
+four stored CRL floors and revocations were preserved; the audit count increased
+from 70,824 before cutover to 70,826 at the immediate post-cutover check. All twelve
+replaced gateway/authority containers are stopped with restart policy `no`.
+Unrelated Docker applications and the separate Cloudflared service were untouched.
 
-The already registered services have automatic startup pending completion.
-Complete the administrator resume step before rebooting this deployment.
-The installer now registers future pending deployments with **Manual** startup
-and enables automatic startup only when explicitly activating services, avoiding
-startup against an unaccepted staged database after an interrupted migration.
+The first read-only-volume backup attempt failed before native startup. The
+successful migration copied the stopped SQLite directory, including any journal
+files, and used SQLite backup plus integrity checks before transferring state.
+The installer registers pending deployments with Manual startup; the migration
+enables automatic startup after readiness and state acceptance. Do not rerun the
+migration script over the now-active deployment.
+
+Before migration, the native quota backend admitted exactly 7 of 64 concurrent
+requests under a limit of 7, rejected unauthenticated access, and retained its
+counter and TTL after Redis restart. Payload hashes and PowerShell syntax were
+checked. A complete Windows reboot drill and post-migration service recovery
+drill have not been performed.
 
 ## Service layout
 
