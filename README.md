@@ -27,6 +27,7 @@ canonical JSON and signature compatibility.
 
 See [platform controls](docs/platform.md) for activation, persistent-volume bootstrap,
 secrets-manager mounts, recovery tests and external production acceptance gates.
+For startup without Docker or a desktop login, see [native Windows services](docs/windows-services.md).
 
 ## API
 
