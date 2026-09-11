@@ -67,6 +67,8 @@ try {
         & "$Destination\services\$($service.id).exe" install
         if ($LASTEXITCODE -ne 0) { throw "Install failed: $($service.id)" }
         $installed += $service.id
+        # Pending migrations must not start against an old staged snapshot at boot.
+        Set-Service -Name $service.id -StartupType Manual
         & sc.exe sidtype $service.id unrestricted | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Could not enable service SID' }
     }
@@ -104,6 +106,7 @@ try {
     Set-Acl -LiteralPath $sshKey -AclObject $acl
     if ($StartServices) {
         foreach ($service in $manifest.services) { Start-Service -Name $service.id }
+        foreach ($service in $manifest.services) { Set-Service -Name $service.id -StartupType Automatic }
     }
     Get-CimInstance Win32_Service | Where-Object Name -in $installed | Select-Object Name, State, StartMode, StartName
 } catch {

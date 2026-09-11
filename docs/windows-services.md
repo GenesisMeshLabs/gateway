@@ -8,11 +8,20 @@ do not rebuild or initialize trust state as part of a runtime migration.
 four-network trust readiness, operator access and retired-token rejection.
 The quota backend admitted exactly 7 of 64 concurrent requests under a limit
 of 7, rejected unauthenticated access, and retained its counter and TTL after
-restart. Payload hashes and PowerShell syntax were checked. Windows elevation
-was canceled before installation, so the services below are **prepared, not
-installed**; the public endpoint still uses the existing Docker deployment.
-Service-account execution, final-state transfer and service/boot recovery
-remain acceptance gates. Temporary candidate processes were stopped.
+restart. Payload hashes and PowerShell syntax were checked. On retry, Windows accepted
+service registration, but the final backup failed because SQLite could not open
+the read-only Docker mount. Copying the stopped database directory and then
+using SQLite backup passed integrity checks. The second elevation request was
+canceled before final-state transfer or service startup. All ten native services
+are registered and stopped; the original Docker stack was restored and public
+readiness verified. Service-account execution, final-state transfer and recovery
+remain acceptance gates.
+
+The already registered services have automatic startup pending completion.
+Complete the administrator resume step before rebooting this deployment.
+The installer now registers future pending deployments with **Manual** startup
+and enables automatic startup only when explicitly activating services, avoiding
+startup against an unaccepted staged database after an interrupted migration.
 
 ## Service layout
 
@@ -74,8 +83,8 @@ Stage and verify native processes on alternate loopback ports before cutover.
 Preserve release provenance and audit the environment-specific service XML and
 manifest. Keep payloads, keys, database copies and migration evidence private.
 
-1. Register services without starting them. Verify the service accounts, ACLs,
-   executable paths and automatic startup settings.
+1. Register services with Manual startup without starting them. Verify the service accounts, ACLs,
+   executable paths and pending startup settings. Enable automatic startup after acceptance.
 2. Stop the old gateway and all old authority writers/maintenance consumers.
    Take consistent SQLite backups of the actual configured database paths. The
    anonymous authority uses `na.db`; the other local authorities use
