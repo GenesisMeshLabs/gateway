@@ -52,7 +52,7 @@ uuid = { version = "1", features = ["v4"] }
 tracing-appender = "0.2"
 arc-swap = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 fs2 = "0.4.3"
 jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs"] }
 redis = { version = "0.27", features = ["tokio-rustls-comp", "tls-rustls-webpki-roots", "connection-manager"] }
