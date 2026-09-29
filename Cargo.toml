@@ -33,7 +33,7 @@ path = "src/bin/genesis_mesh_operator.rs"
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 getrandom = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
