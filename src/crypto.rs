@@ -29,7 +29,7 @@ impl KeyPair {
     /// Generate a fresh identity from system randomness.
     pub fn generate() -> Result<Self> {
         let mut seed = [0u8; KEY_LEN];
-        getrandom::getrandom(&mut seed).map_err(|e| Error::Random(e.to_string()))?;
+        getrandom::fill(&mut seed).map_err(|e| Error::Random(e.to_string()))?;
         Ok(Self {
             signing: SigningKey::from_bytes(&seed),
         })
