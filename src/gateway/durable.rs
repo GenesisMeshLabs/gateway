@@ -87,18 +87,21 @@ impl DurableState {
     /// Storage and delivery gauges for operator alerting, without event contents.
     pub fn stats(&self) -> Result<(u64, u64), String> {
         let connection = self.connection.lock().map_err(|_| "state lock poisoned")?;
-        let pending = connection
+        // SQLite integers are signed; convert explicitly rather than reading u64.
+        let pending: i64 = connection
             .query_row("SELECT count(*) FROM audit WHERE delivered=0", [], |r| {
                 r.get(0)
             })
             .map_err(|_| "audit count failed")?;
-        let bytes = connection
+        let bytes: i64 = connection
             .query_row(
                 "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
                 [],
                 |r| r.get(0),
             )
             .map_err(|_| "state size failed")?;
+        let pending = u64::try_from(pending).map_err(|_| "audit count out of range")?;
+        let bytes = u64::try_from(bytes).map_err(|_| "state size out of range")?;
         Ok((pending, bytes))
     }
 

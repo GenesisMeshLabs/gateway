@@ -61,20 +61,21 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn mtls_accepts_approved_client_and_rejects_missing_or_foreign_certificate() {
-        use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
+        use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
         let ca_key = KeyPair::generate().unwrap();
         let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let ca = ca_params.self_signed(&ca_key).unwrap();
+        let issuer = Issuer::from_params(&ca_params, &ca_key);
         let server_key = KeyPair::generate().unwrap();
         let server = CertificateParams::new(vec!["localhost".into()])
             .unwrap()
-            .signed_by(&server_key, &ca, &ca_key)
+            .signed_by(&server_key, &issuer)
             .unwrap();
         let client_key = KeyPair::generate().unwrap();
         let client = CertificateParams::new(vec!["client.example".into()])
             .unwrap()
-            .signed_by(&client_key, &ca, &ca_key)
+            .signed_by(&client_key, &issuer)
             .unwrap();
         let tls = configuration(
             server.pem().as_bytes(),
@@ -83,11 +84,14 @@ mod tests {
         )
         .unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        // Tokio refuses blocking sockets handed over with from_std.
+        listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let handle = axum_server::Handle::new();
         let control = handle.clone();
         let server = tokio::spawn(async move {
             axum_server::from_tcp_rustls(listener, tls)
+                .unwrap()
                 .handle(handle)
                 .serve(
                     axum::Router::new()
