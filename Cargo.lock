@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "genesis-mesh-gateway"
-version = "0.58.1"
+version = "0.59.0"
 dependencies = [
  "arc-swap",
  "axum",
