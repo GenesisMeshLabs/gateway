@@ -1,6 +1,6 @@
 # Authority services
 
-The console exposes 59 explicitly allowed authority operations in addition to
+The console exposes 80 explicitly allowed authority operations in addition to
 eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
@@ -9,6 +9,8 @@ describe each HTTP method, resource parameter, query field and request example.
 | Agreement | Offer, counter, accept and verify |
 | Attestations | Issue, list, inspect, verify, revoke and recognition policy |
 | Boundary | Decide and verify |
+| Boundary policy (`boundary_policy`) | Validate, publish, list, activate, deactivate, history and verify policies; policy-aware evaluation |
+| Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys and retention |
 | Disclosure | Commitment, membership proof, nullifier and verification |
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
 | Data usage | Create/read license policy, issue intent and verify |
@@ -63,8 +65,20 @@ checks. The node roster is treated as an operator operation.
 The gateway forwards only allowlisted methods/paths and the four operator
 signature headers. It never forwards gateway bearer tokens, cookies or client
 forwarding headers. Redirects are refused, requests time out after ten seconds,
-and responses are limited to 2 MiB. Automatic retries are intentionally absent
+and responses are limited to 2 MiB (the evidence export, forwarded as
+`application/x-ndjson` JSON Lines, to 8 MiB; page it with `since_sequence` and
+`limit`). Automatic retries are intentionally absent
 because mutations and consumed nonces cannot safely be replayed.
+
+Resource identifiers are protocol text: `resource_id` may span path segments
+(`kv:vault/secret`) and `resource_id` and `vendor_id` may contain non-ASCII
+characters. Each segment is encoded once; empty and dot segments, `%`, `\\` and
+control characters are refused before any authority request. Other identifiers
+keep the ASCII rule (letters, digits, `-_.:@`).
+
+The catalog is generated from the core's route source by
+`tests/reference/build_service_catalog.py`; CI runs it with `--check` against core
+`main`, so an authority route the gateway has not reviewed fails the build.
 
 Service readiness and policy freshness are distinct. An authority may return
 `no_policy`, `recognition_policy_not_configured` or a record-not-found result

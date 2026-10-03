@@ -20,6 +20,32 @@ struct Operation {
     admin: bool,
     parameters: Vec<String>,
     query: Vec<String>,
+    /// `ndjson` for newline-delimited JSON (the evidence export); JSON otherwise.
+    #[serde(default)]
+    response: Option<String>,
+    #[serde(default)]
+    max_response_bytes: Option<usize>,
+}
+
+/// Default limit on an authority response forwarded to a client.
+const MAX_RESPONSE: usize = 2 * 1024 * 1024;
+
+/// Path parameters that carry protocol identifiers rather than the
+/// gateway's ASCII resource names. `resource_id` may span segments
+/// (`kv:vault/secret`); both may contain non-ASCII text.
+const PATH_PARAMETERS: [&str; 1] = ["resource_id"];
+const TEXT_PARAMETERS: [&str; 2] = ["resource_id", "vendor_id"];
+
+/// A path segment from protocol text: nonempty, not a dot segment, no
+/// control characters, and no `%` or `\` that a server or proxy could decode
+/// or normalise into another path.
+fn valid_text_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment != "."
+        && segment != ".."
+        && !segment
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '%' | '\\' | '/'))
 }
 
 fn operations() -> &'static Vec<Operation> {
@@ -113,8 +139,15 @@ pub(super) async fn execute(
                     .get(name)
                     .filter(|s| !s.is_empty() && s.as_str() != "." && s.as_str() != "..")
                     .ok_or_else(|| ApiError::bad_request(format!("missing or invalid {name}")))?;
+                let parts: Vec<&str> = if PATH_PARAMETERS.contains(&name) {
+                    value.split('/').collect()
+                } else {
+                    vec![value.as_str()]
+                };
                 let valid = if name == "node_public_key" {
                     crate::crypto::validate_public_key(value).unwrap_or(false)
+                } else if TEXT_PARAMETERS.contains(&name) {
+                    parts.iter().all(|part| valid_text_segment(part))
                 } else {
                     value
                         .bytes()
@@ -123,8 +156,10 @@ pub(super) async fn execute(
                 if !valid {
                     return Err(ApiError::bad_request("invalid resource identifier"));
                 }
-                // Encoded once as one segment; never interpolate untrusted paths.
-                segments.push(value);
+                // Each part encoded once as one segment; never interpolate untrusted paths.
+                for part in parts {
+                    segments.push(part);
+                }
             } else {
                 segments.push(segment);
             }
@@ -181,11 +216,8 @@ pub(super) async fn execute(
             "authority request failed".into(),
         ));
     }
-    const MAX_RESPONSE: usize = 2 * 1024 * 1024;
-    if upstream
-        .content_length()
-        .is_some_and(|n| n > MAX_RESPONSE as u64)
-    {
+    let limit = op.max_response_bytes.unwrap_or(MAX_RESPONSE);
+    if upstream.content_length().is_some_and(|n| n > limit as u64) {
         return Err(ApiError(
             StatusCode::BAD_GATEWAY,
             "authority response too large".into(),
@@ -197,13 +229,39 @@ pub(super) async fn execute(
         .await
         .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "authority response failed".into()))?
     {
-        if bytes.len() + chunk.len() > MAX_RESPONSE {
+        if bytes.len() + chunk.len() > limit {
             return Err(ApiError(
                 StatusCode::BAD_GATEWAY,
                 "authority response too large".into(),
             ));
         }
         bytes.extend_from_slice(&chunk);
+    }
+    if status.is_success() && op.response.as_deref() == Some("ndjson") {
+        let text = String::from_utf8(bytes).map_err(|_| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                "authority returned invalid text".into(),
+            )
+        })?;
+        // Every line must be a JSON object: the gateway forwards records, not markup.
+        if !text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
+        {
+            return Err(ApiError(
+                StatusCode::BAD_GATEWAY,
+                "authority returned invalid JSON Lines".into(),
+            ));
+        }
+        tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
+        return Ok((
+            status,
+            [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
+            text,
+        )
+            .into_response());
     }
     let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
         ApiError(
