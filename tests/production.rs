@@ -897,13 +897,207 @@ fn authority_origins_reject_credentials_paths_queries_and_implicit_http() {
     assert!(cfg.prepare().is_err());
 }
 
+fn evidence_fixture(origin: &str) -> Config {
+    let mut cfg = service_fixture(origin);
+    let client = &mut cfg.security.as_mut().unwrap().clients[0];
+    client.service_groups = ["evidence_store".into(), "boundary_policy".into()].into();
+    client.authority_admin = true;
+    cfg
+}
+
+async fn signed_get(app: &Router, path: &str) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .uri(path)
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("x-admin-key-id", "operator-test")
+                .header("x-admin-timestamp", "2026-10-03T00:00:00Z")
+                .header("x-admin-nonce", "unique-nonce")
+                .header("x-admin-signature", "signed-request")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn resource_ids_span_segments_and_carry_unicode_encoded_once() {
+    let seen = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let record = seen.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(move |uri: axum::http::Uri| {
+        let record = record.clone();
+        async move {
+            record.lock().await.push(uri.to_string());
+            axum::Json(json!({"resource_sequence": 3, "record_digest": "d"}))
+        }
+    }))
+    .await;
+    let app = router(evidence_fixture(&origin));
+    for (path, upstream) in [
+        (
+            "/v1/networks/public-agency/services/evidence_store-resource-head?resource_id=kv%3Apilot-vault%2Fvendor-zo%C3%AB-api",
+            "/admin/evidence/resource-heads/kv:pilot-vault/vendor-zo%C3%AB-api",
+        ),
+        (
+            "/v1/networks/public-agency/services/evidence_store-resource-history?resource_id=kv%3Av%2Fs%20one",
+            "/admin/evidence/resources/kv:v/s%20one",
+        ),
+        (
+            "/v1/networks/public-agency/services/evidence_store-vendor-history?vendor_id=vendor-zo%C3%AB",
+            "/admin/evidence/vendors/vendor-zo%C3%AB",
+        ),
+        (
+            "/v1/networks/public-agency/services/evidence_store-search?vendor_id=v1&entry_kind=execution&after_sequence=5&limit=2",
+            "/admin/evidence?after_sequence=5&entry_kind=execution&limit=2&vendor_id=v1",
+        ),
+    ] {
+        let response = signed_get(&app, path).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(seen.lock().await.last().unwrap(), upstream);
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn evidence_identifiers_refuse_traversal_and_encoded_paths() {
+    let app = router(evidence_fixture("http://127.0.0.1:9"));
+    for query in [
+        "evidence_store-resource-head?resource_id=kv%3Av%2F..%2Fadmin",
+        "evidence_store-resource-head?resource_id=kv%3Av%2F%2Fs",
+        "evidence_store-resource-head?resource_id=%252e%252e",
+        "evidence_store-resource-head?resource_id=kv%3Av%5Cs",
+        "evidence_store-resource-head?resource_id=kv%3Av%0As",
+        "evidence_store-resource-head?resource_id=",
+        "evidence_store-vendor-history?vendor_id=a%2Fb",
+        "evidence_store-retire-executor-key?key_id=k%C3%AB",
+    ] {
+        let path = format!("/v1/networks/public-agency/services/{query}");
+        let method_body = query
+            .starts_with("evidence_store-retire")
+            .then(|| json!({}));
+        let response = if method_body.is_some() {
+            call(&app, &path, method_body, Some(TOKEN)).await.0
+        } else {
+            signed_get(&app, &path).await.status()
+        };
+        assert_eq!(response, StatusCode::BAD_REQUEST, "{query}");
+    }
+}
+
+#[tokio::test]
+async fn new_admin_reads_require_operator_signed_headers() {
+    let app = router(evidence_fixture("http://127.0.0.1:9"));
+    for op in [
+        "evidence_store-search",
+        "evidence_store-status",
+        "evidence_store-export",
+        "boundary_policy-active-policies",
+        "evidence_store-resource-head?resource_id=kv%3Av%2Fs",
+    ] {
+        let (status, body) = call(
+            &app,
+            &format!("/v1/networks/public-agency/services/{op}"),
+            None,
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{op}");
+        assert!(body["error"].as_str().unwrap().contains("operator-signed"));
+    }
+    let mut cfg = evidence_fixture("http://127.0.0.1:9");
+    cfg.security.as_mut().unwrap().clients[0].service_groups = ["network".into()].into();
+    let (status, _) = call(
+        &router(cfg),
+        "/v1/networks/public-agency/services/evidence_store-status",
+        None,
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn evidence_export_is_forwarded_as_json_lines_and_fails_closed_otherwise() {
+    let lines = "{\"entry\":{\"store_sequence\":1}}\n{\"entry\":{\"store_sequence\":2}}\n";
+    for (body, expected) in [
+        (lines.to_owned(), StatusCode::OK),
+        (
+            "{\"entry\":1}\n<html>private failure detail</html>\n".to_owned(),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            "{\"x\":\"".to_owned() + &"y".repeat(8 * 1024 * 1024) + "\"}\n",
+            StatusCode::BAD_GATEWAY,
+        ),
+    ] {
+        let saved = std::sync::Arc::new(tokio::sync::Mutex::new(Some(body)));
+        let (origin, task) = mock_authority(Router::new().route(
+            "/admin/evidence/export",
+            axum::routing::get(move |uri: axum::http::Uri| {
+                let saved = saved.clone();
+                async move {
+                    assert_eq!(uri.query(), Some("limit=2&since_sequence=0"));
+                    (
+                        [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
+                        saved.lock().await.take().unwrap(),
+                    )
+                }
+            }),
+        ))
+        .await;
+        let app = router(evidence_fixture(&origin));
+        let response = signed_get(
+            &app,
+            "/v1/networks/public-agency/services/evidence_store-export?since_sequence=0&limit=2",
+        )
+        .await;
+        assert_eq!(response.status(), expected);
+        let content_type = response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        if expected == StatusCode::OK {
+            assert_eq!(content_type, "application/x-ndjson");
+            assert_eq!(bytes.as_ref(), lines.as_bytes());
+        } else {
+            assert!(!String::from_utf8_lossy(&bytes).contains("private failure detail"));
+        }
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn authority_errors_on_new_routes_are_forwarded_with_their_code() {
+    let (origin, task) = mock_authority(Router::new().fallback(|| async {
+        (
+            StatusCode::NOT_FOUND,
+            axum::Json(json!({"error": {"code": "resource_not_found", "message": "no head"}})),
+        )
+    }))
+    .await;
+    let app = router(evidence_fixture(&origin));
+    let response = signed_get(
+        &app,
+        "/v1/networks/public-agency/services/evidence_store-resource-head?resource_id=kv%3Av%2Fnone",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let body: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body["error"]["code"], "resource_not_found");
+    task.abort();
+}
+
 #[tokio::test]
 async fn every_catalog_operation_is_documented_in_openapi() {
     let app = router(fixture().0);
     let (_, catalog) = call(&app, "/v1/services", None, None).await;
     let (_, spec) = call(&app, "/openapi.json", None, None).await;
     let operations = catalog["operations"].as_array().unwrap();
-    assert!(operations.len() >= 59);
+    assert!(operations.len() >= 80);
     for op in operations {
         let path = format!(
             "/v1/networks/{{network}}/services/{}",

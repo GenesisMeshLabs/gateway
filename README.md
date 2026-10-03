@@ -21,8 +21,9 @@ canonical JSON and signature compatibility.
 - Cancellation-safe worker limits, bounded bodies/batches, request deadlines.
 - JSON audit logs, request correlation, Prometheus metrics and readiness probes.
 - Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
-- 59 scoped Network Authority operations across all seven SDK service areas,
-  enrollment, discovery, treaties and administration, with browser-side operator signing.
+- 80 scoped Network Authority operations: every SDK service area, boundary
+  policies, the execution evidence store, enrollment, discovery, treaties and
+  administration, with browser-side operator signing.
 - Non-root container with read-only filesystem and constrained resources.
 
 See [platform controls](docs/platform.md) for activation, persistent-volume bootstrap,

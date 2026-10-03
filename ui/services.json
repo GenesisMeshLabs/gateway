@@ -350,6 +350,176 @@
     }
   },
   {
+    "id": "boundary_policy-validate-policy",
+    "group": "boundary_policy",
+    "name": "Validate policy",
+    "description": "Validate policy intent against the trusted registry without signing it.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary-policies/validate",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "policy_id": "transfer-limits",
+      "valid_from": "2026-10-01T00:00:00Z",
+      "valid_until": "2027-10-01T00:00:00Z",
+      "selector": {
+        "capabilities": [
+          "payments.*"
+        ]
+      },
+      "gates": [
+        {
+          "gate_id": "app",
+          "gate_type": "attestation_claim.v1",
+          "order": 0,
+          "config": {
+            "path": "request_parameters.app_id",
+            "claim": "apps"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "boundary_policy-publish-policy",
+    "group": "boundary_policy",
+    "name": "Publish policy",
+    "description": "Validate, sign and store a new inactive policy version.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary-policies",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "policy_id": "transfer-limits",
+      "description": "Cap transfers",
+      "valid_from": "2026-10-01T00:00:00Z",
+      "valid_until": "2027-10-01T00:00:00Z",
+      "selector": {
+        "capabilities": [
+          "payments.*"
+        ]
+      },
+      "gates": [
+        {
+          "gate_id": "amount-cap",
+          "gate_type": "max_value.v1",
+          "order": 0,
+          "config": {
+            "path": "request_parameters.amount",
+            "max": 1000
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "boundary_policy-list-policies",
+    "group": "boundary_policy",
+    "name": "List policies",
+    "description": "List every stored boundary policy version.",
+    "method": "GET",
+    "upstream_path": "/admin/boundary-policies",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "boundary_policy-active-policies",
+    "group": "boundary_policy",
+    "name": "Active policies",
+    "description": "Return the active policy set, its health, and the enforcement mode.",
+    "method": "GET",
+    "upstream_path": "/admin/boundary-policies/active",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "boundary_policy-policy-history",
+    "group": "boundary_policy",
+    "name": "Policy history",
+    "description": "Return every stored version of one policy, newest first.",
+    "method": "GET",
+    "upstream_path": "/admin/boundary-policies/{policy_id}/history",
+    "admin": true,
+    "parameters": [
+      "policy_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "boundary_policy-activate-policy",
+    "group": "boundary_policy",
+    "name": "Activate policy",
+    "description": "Activate a version (re-verified first); also the rollback path.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary-policies/{policy_id}/activate",
+    "admin": true,
+    "parameters": [
+      "policy_id"
+    ],
+    "query": [],
+    "body": {
+      "version": 1
+    }
+  },
+  {
+    "id": "boundary_policy-deactivate-policy",
+    "group": "boundary_policy",
+    "name": "Deactivate policy",
+    "description": "Deactivate an active version.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary-policies/{policy_id}/deactivate",
+    "admin": true,
+    "parameters": [
+      "policy_id"
+    ],
+    "query": [],
+    "body": {
+      "version": 1
+    }
+  },
+  {
+    "id": "boundary_policy-evaluate",
+    "group": "boundary_policy",
+    "name": "Evaluate",
+    "description": "Policy-aware evaluation under an agreement or (v0.58.1) an attestation basis.",
+    "method": "POST",
+    "upstream_path": "/admin/boundary/evaluate",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "attestation_id": "7f0c...",
+      "requested_capability": "app.invoke",
+      "context": {
+        "request_parameters": {
+          "app_id": "billing"
+        }
+      }
+    }
+  },
+  {
+    "id": "boundary_policy-verify-policy",
+    "group": "boundary_policy",
+    "name": "Verify policy",
+    "description": "Verify a signed BoundaryPolicy against the NA key or supplied issuer keys.",
+    "method": "POST",
+    "upstream_path": "/boundary-policies/verify",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "policy": {},
+      "issuer_public_keys": []
+    }
+  },
+  {
     "id": "consensus-vote",
     "group": "consensus",
     "name": "Vote",
@@ -769,10 +939,187 @@
     }
   },
   {
+    "id": "evidence_store-submit-execution",
+    "group": "evidence_store",
+    "name": "Submit execution",
+    "description": "Validate and store one signed ExecutionEvidence record.",
+    "method": "POST",
+    "upstream_path": "/evidence/execution",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "evidence": {}
+    }
+  },
+  {
+    "id": "evidence_store-search",
+    "group": "evidence_store",
+    "name": "Search",
+    "description": "Search stored entries by vendor, attestation, capability, resource, outcome or time.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence",
+    "admin": true,
+    "parameters": [],
+    "query": [
+      "after_sequence",
+      "attestation_id",
+      "capability",
+      "decision_id",
+      "entry_kind",
+      "limit",
+      "outcome",
+      "resource_id",
+      "since",
+      "until",
+      "vendor_id"
+    ],
+    "body": null
+  },
+  {
+    "id": "evidence_store-status",
+    "group": "evidence_store",
+    "name": "Status",
+    "description": "Store mode, size, last store sequence and latest retention checkpoint.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/status",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-verify",
+    "group": "evidence_store",
+    "name": "Verify",
+    "description": "Verify every stored entry, chain and signature.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/verify",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-resource-history",
+    "group": "evidence_store",
+    "name": "Resource history",
+    "description": "Full history of one resource, decision to execution, with verification.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/resources/{resource_id}",
+    "admin": true,
+    "parameters": [
+      "resource_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-resource-head",
+    "group": "evidence_store",
+    "name": "Resource head",
+    "description": "The head of one resource chain: what the next record must link to.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/resource-heads/{resource_id}",
+    "admin": true,
+    "parameters": [
+      "resource_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-vendor-history",
+    "group": "evidence_store",
+    "name": "Vendor history",
+    "description": "A vendor's decisions and the evidence under them, with verification.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/vendors/{vendor_id}",
+    "admin": true,
+    "parameters": [
+      "vendor_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-export",
+    "group": "evidence_store",
+    "name": "Export",
+    "description": "gm.evidence.event JSON Lines from since_sequence, for SIEM pipelines.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/export",
+    "admin": true,
+    "parameters": [],
+    "query": [
+      "limit",
+      "since_sequence"
+    ],
+    "body": null,
+    "response": "ndjson",
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "evidence_store-list-executor-keys",
+    "group": "evidence_store",
+    "name": "List executor keys",
+    "description": "Registered executor keys (public keys; retired keys included).",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/executor-keys",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-register-executor-key",
+    "group": "evidence_store",
+    "name": "Register executor key",
+    "description": "Register a controller's executor signing key.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/executor-keys",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "key_id": "controller-1",
+      "public_key": "PASTE_EXECUTOR_PUBLIC_KEY",
+      "executor_sovereign_id": "controller-1"
+    }
+  },
+  {
+    "id": "evidence_store-retire-executor-key",
+    "group": "evidence_store",
+    "name": "Retire executor key",
+    "description": "Retire an executor key: it verifies old records and signs no new ones.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/executor-keys/{key_id}/retire",
+    "admin": true,
+    "parameters": [
+      "key_id"
+    ],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "evidence_store-apply-retention",
+    "group": "evidence_store",
+    "name": "Apply retention",
+    "description": "Remove a verifiable prefix of old entries behind a signed checkpoint.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/retention/apply",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "older_than_days": 365
+    }
+  },
+  {
     "id": "health-health",
     "group": "network",
     "name": "Health",
-    "description": "Return legacy health metadata.",
+    "description": "Return legacy health metadata plus boundary policy health (v0.58).",
     "method": "GET",
     "upstream_path": "/health",
     "admin": false,
@@ -784,7 +1131,7 @@
     "id": "health-readyz",
     "group": "network",
     "name": "Readyz",
-    "description": "Return readiness after checking DB, genesis, and NA key state.",
+    "description": "Readiness for load balancers: database writable at the expected schema,",
     "method": "GET",
     "upstream_path": "/readyz",
     "admin": false,
