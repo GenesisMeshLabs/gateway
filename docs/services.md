@@ -41,6 +41,35 @@ Browser signing supports safe-integer JSON values; use SDK-generated headers for
 fractional or larger numeric values. Enrollment and discovery retain their
 node proof-of-possession and signed-record requirements.
 
+## Demo access and the guided tour (v0.65)
+
+A client marked `demo: true` is a public demonstration identity. Its token is
+stored in the policy as `demo_token` (it must hash to `token_sha256`) and
+published at `GET /v1/demo`; the console's **Try the demo** button uses it.
+Publishing is safe because the gateway refuses to start unless every demo
+client:
+
+- has no `authority_admin` and no `metrics`;
+- allows at most 120 requests per minute;
+- uses only read and verify groups: `agreement`, `attestations`, `boundary`,
+  `boundary_policy`, `consensus`, `data_usage`, `disclosure`, `evidence`,
+  `network`, `treaties` (their non-operator operations are reads and
+  verifications; enrollment, discovery, evidence submission and
+  administration are excluded).
+
+A demo client can never forward an operator-signed request, even with signed
+headers. Non-demo clients may not carry `demo_token`.
+
+The **Guided tour** runs four scenarios with whatever token is connected:
+explore the mesh, verify a treaty from another sovereign (and a tampered copy),
+recognize and revoke a membership across sovereigns, and verify a governed
+secret's evidence chain in the browser. The last three read signed records a
+deployment publishes at `/demo-data/` (see `genesismesh/infrastructure/mesh-demo`).
+
+A network may also set `public_external_treaties: true` (with `public_mesh`)
+to show its treaties to sovereigns outside the gateway as external nodes in
+the live mesh. It is off by default.
+
 ## Operator configuration
 
 Each network may have an `authority_url` containing only its pinned HTTPS origin.

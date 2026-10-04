@@ -99,7 +99,8 @@ pub fn assess(
         ("feed_sequence", feed["sequence"].as_u64().is_some()),
         (
             "recognition_catalog",
-            treaties["recognition_treaties"].is_array(),
+            // A live NA lists `recognition_treaties`; a public reference `treaties` (v0.65).
+            treaties["recognition_treaties"].is_array() || treaties["treaties"].is_array(),
         ),
         (
             "authority_delegation_window",
@@ -189,5 +190,18 @@ mod tests {
             )["passed"],
             false
         );
+    }
+    #[test]
+    fn recognition_catalog_accepts_live_and_reference_formats() {
+        let passed = |treaties: Value| {
+            assess("a", "k", &json!({}), &json!({}), &json!({}), &treaties)["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["check"] == "recognition_catalog" && c["passed"] == true)
+        };
+        assert!(passed(json!({"recognition_treaties": []})));
+        assert!(passed(json!({"treaties": [], "external_treaties": []})));
+        assert!(!passed(json!({"treaties": {}})));
     }
 }

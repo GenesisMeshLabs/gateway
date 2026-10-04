@@ -22,6 +22,12 @@ pub(super) async fn signing_script() -> impl IntoResponse {
         include_str!("../../ui/signing.js"),
     )
 }
+pub(super) async fn tour_script() -> impl IntoResponse {
+    (
+        [("content-type", "text/javascript; charset=utf-8")],
+        include_str!("../../ui/tour.js"),
+    )
+}
 pub(super) async fn style() -> impl IntoResponse {
     (
         [("content-type", "text/css; charset=utf-8")],
@@ -36,6 +42,29 @@ pub(super) async fn specification() -> Json<Value> {
         })
         .clone(),
     )
+}
+
+/// Published demo credentials (v0.65). Demo clients are validated at startup
+/// to read and verify operations only, so publishing their tokens is safe.
+pub(super) async fn demo(State(state): State<AppState>) -> Json<Value> {
+    let security = state.security.load_full();
+    let clients: Vec<Value> = security
+        .as_ref()
+        .map(|policy| {
+            policy
+                .clients
+                .iter()
+                .filter(|c| c.demo)
+                .filter_map(|c| {
+                    Some(json!({"client_id": c.id, "token": c.demo_token.as_ref()?,
+                        "networks": c.networks, "service_groups": c.service_groups,
+                        "requests_per_minute": c.requests_per_minute}))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Json(json!({"available": !clients.is_empty(), "clients": clients,
+        "notice": "Demo access is public and limited to reading and verifying. It cannot change any authority."}))
 }
 
 pub(super) async fn networks(

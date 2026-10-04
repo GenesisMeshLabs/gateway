@@ -1,4 +1,5 @@
 import './mesh.js';
+import './tour.js';
 import {operatorHeaders} from './signing.js';
 const $ = id => document.getElementById(id);
 const core = [

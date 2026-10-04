@@ -395,6 +395,17 @@
         }
       }
     },
+    "/v1/demo": {
+      "get": {
+        "summary": "Public demo credentials",
+        "description": "Tokens of policy clients marked demo: true. The gateway refuses to start if a demo client can forward operator operations, read metrics, exceed 120 requests per minute or use groups other than reads and verification.",
+        "responses": {
+          "200": {
+            "description": "Demo clients, or available: false"
+          }
+        }
+      }
+    },
     "/v1/networks/{network}/services/admin-create-invite": {
       "post": {
         "operationId": "admin-create-invite",
