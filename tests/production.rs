@@ -230,6 +230,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
     let network = NetworkPolicy {
         additional_issuers: Default::default(),
         public_mesh: false,
+        public_external_treaties: false,
         authority_url: None,
         crl_url: None,
         allow_http: false,
@@ -248,6 +249,8 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
         networks: ["public-agency".into()].into(),
         metrics: false,
         requests_per_minute: 100,
+        demo: false,
+        demo_token: None,
         token_digest: [0; 32],
     };
     (
@@ -1089,6 +1092,132 @@ async fn authority_errors_on_new_routes_are_forwarded_with_their_code() {
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["error"]["code"], "resource_not_found");
     task.abort();
+}
+
+const DEMO_TOKEN: &str = "public-demo-token-for-the-mesh-console-0001";
+
+fn demo_client() -> genesis_mesh::gateway::security::Client {
+    let mut client = fixture().0.security.unwrap().clients.remove(0);
+    client.id = "mesh-demo".into();
+    client.token_sha256 = format!("{:x}", Sha256::digest(DEMO_TOKEN.as_bytes()));
+    client.demo = true;
+    client.demo_token = Some(DEMO_TOKEN.into());
+    client.requests_per_minute = 60;
+    client.service_groups = ["attestations".into(), "treaties".into(), "network".into()].into();
+    client
+}
+
+fn with_demo(mut cfg: Config, demo: genesis_mesh::gateway::security::Client) -> Config {
+    cfg.security.as_mut().unwrap().clients.push(demo);
+    cfg
+}
+
+#[tokio::test]
+async fn demo_credentials_are_published_and_limited_to_read_and_verify() {
+    async fn verify() -> axum::Json<Value> {
+        axum::Json(json!({"accepted": true}))
+    }
+    let (origin, task) =
+        mock_authority(Router::new().route("/attestations/verify", axum::routing::post(verify)))
+            .await;
+    let app = router(with_demo(service_fixture(&origin), demo_client()));
+    let (status, demo) = call(&app, "/v1/demo", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(demo["available"], true);
+    let published = &demo["clients"][0];
+    assert_eq!(published["token"], DEMO_TOKEN);
+    assert_eq!(published["networks"], json!(["public-agency"]));
+    assert!(
+        !demo.to_string().contains(TOKEN),
+        "only demo tokens are published"
+    );
+
+    let (status, body) = call(
+        &app,
+        "/v1/networks/public-agency/services/attestations-verify-attestation",
+        Some(json!({"attestation": {}})),
+        Some(DEMO_TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["accepted"], true);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/networks/public-agency/services/attestations-issue-attestation")
+                .header("authorization", format!("Bearer {DEMO_TOKEN}"))
+                .header("content-type", "application/json")
+                .header("x-admin-key-id", "operator-test")
+                .header("x-admin-timestamp", "2026-10-04T00:00:00Z")
+                .header("x-admin-nonce", "unique-nonce")
+                .header("x-admin-signature", "signed-request")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    task.abort();
+}
+
+#[tokio::test]
+async fn no_demo_clients_means_no_published_credentials() {
+    let (status, demo) = call(
+        &router(service_fixture("http://127.0.0.1:9")),
+        "/v1/demo",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        demo,
+        json!({"available": false, "clients": [], "notice": demo["notice"]})
+    );
+}
+
+#[test]
+fn unsafe_demo_clients_are_refused_at_startup() {
+    type Change = fn(&mut genesis_mesh::gateway::security::Client);
+    let cases: [(&str, Change); 7] = [
+        ("operator forwarding", |c| c.authority_admin = true),
+        ("metrics", |c| c.metrics = true),
+        ("enrollment group", |c| {
+            c.service_groups.insert("enrollment".into());
+        }),
+        ("evidence submission group", |c| {
+            c.service_groups.insert("evidence_store".into());
+        }),
+        ("high quota", |c| c.requests_per_minute = 1000),
+        ("token mismatch", |c| {
+            c.demo_token = Some("another-public-demo-token-0000000000".into())
+        }),
+        ("missing token", |c| c.demo_token = None),
+    ];
+    for (name, change) in cases {
+        let mut client = demo_client();
+        change(&mut client);
+        assert!(
+            with_demo(service_fixture("http://127.0.0.1:9"), client)
+                .prepare()
+                .is_err(),
+            "{name}"
+        );
+    }
+    let mut leaked = fixture().0;
+    leaked.security.as_mut().unwrap().clients[0].demo_token = Some(TOKEN.into());
+    assert!(
+        leaked.prepare().is_err(),
+        "only demo clients may publish a token"
+    );
+    assert!(
+        with_demo(service_fixture("http://127.0.0.1:9"), demo_client())
+            .prepare()
+            .is_ok()
+    );
 }
 
 #[tokio::test]

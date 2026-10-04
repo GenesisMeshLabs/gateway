@@ -103,7 +103,9 @@ pub(super) async fn execute(
             "method does not match service operation".into(),
         ));
     }
-    if !client.service_groups.contains(&op.group) || (op.admin && !client.authority_admin) {
+    if !client.service_groups.contains(&op.group)
+        || (op.admin && (!client.authority_admin || client.demo))
+    {
         return Err(ApiError(
             StatusCode::FORBIDDEN,
             "service operation not authorized".into(),

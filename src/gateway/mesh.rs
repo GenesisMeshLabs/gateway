@@ -35,6 +35,15 @@ async fn read(client: &reqwest::Client, origin: &str, path: &str) -> Result<Valu
     serde_json::from_slice(&bytes).map_err(|_| ())
 }
 
+/// External sovereign names come from authority data; render only plain IDs.
+fn valid_sovereign_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b == b'.'
+        })
+}
+
 fn current(record: &Value) -> bool {
     let now = Utc::now();
     record["status"] == "active"
@@ -76,29 +85,44 @@ fn verified_feed(
     )
 }
 
+/// Treaty rows from a live NA (`recognition_treaties`, row status) or a public
+/// reference (`treaties` and `external_treaties`, treaty status; v0.65).
+fn treaty_rows(treaties: &Value) -> impl Iterator<Item = (&Value, &Value)> {
+    ["recognition_treaties", "treaties", "external_treaties"]
+        .into_iter()
+        .flat_map(move |key| treaties[key].as_array().into_iter().flatten())
+        .map(|row| {
+            let status = if row["status"].is_string() {
+                &row["status"]
+            } else {
+                &row["treaty"]["status"]
+            };
+            (row, status)
+        })
+}
+
 fn project(
     name: &str,
     visible: &BTreeSet<String>,
+    show_external: bool,
     treaties: &Value,
     attestations: &Value,
 ) -> (Vec<Value>, Vec<Value>) {
     let mut edges = Vec::new();
-    for row in treaties["recognition_treaties"]
-        .as_array()
-        .into_iter()
-        .flatten()
-    {
+    for (row, status) in treaty_rows(treaties) {
         let t = &row["treaty"];
-        if row["status"] != "active" || !current(t) || t["issuer_sovereign_id"] != name {
+        if status != "active" || !current(t) || t["issuer_sovereign_id"] != name {
             continue;
         }
-        if !t["subject_sovereign_id"]
-            .as_str()
-            .is_some_and(|s| visible.contains(s))
-        {
+        let Some(subject) = t["subject_sovereign_id"].as_str() else {
+            continue;
+        };
+        // Sovereigns outside this gateway appear only when the operator opts in (v0.65).
+        let external = !visible.contains(subject);
+        if external && !(show_external && valid_sovereign_id(subject)) {
             continue;
         }
-        edges.push(json!({"id":t["treaty_id"],"from":name,"to":t["subject_sovereign_id"],"roles":t["scope"]["allowed_roles"],"expires_at":t["expires_at"],"issued_at":t["issued_at"]}));
+        edges.push(json!({"id":t["treaty_id"],"from":name,"to":subject,"roles":t["scope"]["allowed_roles"],"expires_at":t["expires_at"],"issued_at":t["issued_at"],"external":external}));
         if edges.len() == 256 {
             break;
         }
@@ -156,11 +180,13 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
             let client = state.authority_http.clone();
             let keys = network.verifying_keys.clone();
             let visible = visible.clone();
+            let show_external = network.public_external_treaties;
             tasks.spawn(async move {
                 let (treaties, attestations, dashboard, feed) = tokio::join!(read(&client, &origin, "/recognition-treaties?status=active"), read(&client, &origin, "/attestations?status=active"), read(&client, &origin, "/dashboard.json"), read(&client, &origin, "/sovereign-revocation-feed"));
-                let available = treaties.is_ok() && attestations.is_ok();
+                // A public reference publishes no attestation listing; treaties decide availability.
+                let available = treaties.is_ok();
                 // Partial failures never retain old links or present stale counts as live.
-                let (edges, members) = project(&name, &visible, &treaties.unwrap_or(Value::Null), &attestations.unwrap_or(Value::Null));
+                let (edges, members) = project(&name, &visible, show_external, &treaties.unwrap_or(Value::Null), &attestations.unwrap_or(Value::Null));
                 let source_feed = verified_feed(&name, &feed.unwrap_or(Value::Null), &keys);
                 let dashboard_available = dashboard.is_ok();
                 let dashboard = dashboard.unwrap_or(Value::Null);
@@ -188,8 +214,20 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
     members.sort_by_key(|n| n["subject"].as_str().unwrap_or_default().to_owned());
     let pairs: BTreeSet<_> = edges
         .iter()
+        .filter(|e| e["external"] != true)
         .filter_map(|e| Some((e["from"].as_str()?, e["to"].as_str()?)))
         .collect();
+    let mut external: Vec<Value> = Vec::new();
+    for edge in edges.iter().filter(|e| e["external"] == true) {
+        let id = edge["to"].clone();
+        if let Some(x) = external.iter_mut().find(|x| x["id"] == id) {
+            if let Some(list) = x["recognized_by"].as_array_mut() {
+                list.push(edge["from"].clone());
+            }
+        } else if external.len() < 32 {
+            external.push(json!({"id": id, "recognized_by": [edge["from"].clone()]}));
+        }
+    }
     let synchronization: Vec<_> = pairs.into_iter().map(|(consumer, publisher)| {
         let source = networks.iter().find(|n| n["id"] == publisher);
         let target = networks.iter().find(|n| n["id"] == consumer);
@@ -203,7 +241,7 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
             else if sequence < published { "behind" } else { "source_rollback" };
         json!({"consumer":consumer,"publisher":publisher,"status":status,"published_sequence":published,"imported_sequence":sequence,"last_imported_at":imported.map(|i|&i["imported_at"])})
     }).collect();
-    let data = json!({"observed_at":Utc::now(),"refresh_seconds":20,"networks":networks,"links":edges,"members":members,"synchronization":synchronization,"network_limit":16,"member_limit_per_network":64,"link_limit_per_network":256});
+    let data = json!({"observed_at":Utc::now(),"refresh_seconds":20,"networks":networks,"links":edges,"external_sovereigns":external,"members":members,"synchronization":synchronization,"network_limit":16,"member_limit_per_network":64,"link_limit_per_network":256});
     *cache = Some((Instant::now(), data.clone()));
     Json(data)
 }
@@ -256,11 +294,45 @@ mod tests {
         let (edges, members) = project(
             "a",
             &["a".into(), "b".into()].into(),
+            false,
             &json!({"recognition_treaties":[{"status":"active","treaty":treaty},{"status":"active","treaty":hidden},{"status":"revoked","treaty":treaty}]}),
             &json!({"attestations":[{"status":"active","attestation":member},{"status":"revoked","attestation":member},{"status":"active","attestation":private},{"status":"active","attestation":expired}]}),
         );
         assert_eq!(edges.len(), 1);
         assert_eq!(members.len(), 1);
         assert!(!json!(members).to_string().contains("never expose"));
+    }
+
+    #[test]
+    fn reference_treaties_and_opted_in_external_sovereigns_are_projected() {
+        let window = json!({"status":"active","valid_from":Utc::now()-chrono::Duration::hours(1),"expires_at":Utc::now()+chrono::Duration::hours(1),"issuer_sovereign_id":"ref","scope":{"allowed_roles":["role:demo"]}});
+        let treaty = |id: &str, subject: &str| {
+            let mut t = window.clone();
+            t["treaty_id"] = json!(id);
+            t["subject_sovereign_id"] = json!(subject);
+            json!({"treaty": t, "expected_active": true})
+        };
+        let mut retired = treaty("t4", "gm-demo-gamma-na");
+        retired["treaty"]["status"] = json!("revoked");
+        let reference = json!({
+            "treaties": [treaty("t1", "gm-demo-alpha-na"), treaty("t2", "<script>"), retired],
+            "external_treaties": [treaty("t3", "genesis-mesh")],
+        });
+        let visible: BTreeSet<String> = ["ref".into(), "genesis-mesh".into()].into();
+        let (edges, members) = project("ref", &visible, true, &reference, &Value::Null);
+        let summary: Vec<(String, bool)> = edges
+            .iter()
+            .map(|e| (e["to"].as_str().unwrap().to_owned(), e["external"] == true))
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                ("gm-demo-alpha-na".into(), true),
+                ("genesis-mesh".into(), false)
+            ]
+        );
+        assert!(members.is_empty());
+        let (hidden, _) = project("ref", &visible, false, &reference, &Value::Null);
+        assert_eq!(hidden.len(), 1);
     }
 }

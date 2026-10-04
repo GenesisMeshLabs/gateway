@@ -21,6 +21,8 @@ canonical JSON and signature compatibility.
 - Cancellation-safe worker limits, bounded bodies/batches, request deadlines.
 - JSON audit logs, request correlation, Prometheus metrics and readiness probes.
 - Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
+- Public demo access (`GET /v1/demo`, read and verify only, enforced at startup)
+  and a guided tour of portable trust in the console.
 - 80 scoped Network Authority operations: every SDK service area, boundary
   policies, the execution evidence store, enrollment, discovery, treaties and
   administration, with browser-side operator signing.

@@ -47,9 +47,67 @@ pub struct Client {
     pub metrics: bool,
     /// Per-process request allowance in each sixty-second window.
     pub requests_per_minute: u32,
+    /// A public demonstration identity (v0.65): its token is published at
+    /// `GET /v1/demo`. Validation limits it to read and verify operations.
+    #[serde(default)]
+    pub demo: bool,
+    /// The published token of a demo client; must hash to `token_sha256`.
+    /// Never allowed on any other client.
+    #[serde(default)]
+    pub demo_token: Option<String>,
     /// Decoded `token_sha256`, filled when the policy is prepared.
     #[serde(skip)]
     pub token_digest: [u8; 32],
+}
+
+/// Service groups a public demo client may use. Their non-operator
+/// operations are reads and verifications; enrollment, discovery, evidence
+/// submission and administration are excluded.
+pub const DEMO_SERVICE_GROUPS: [&str; 10] = [
+    "agreement",
+    "attestations",
+    "boundary",
+    "boundary_policy",
+    "consensus",
+    "data_usage",
+    "disclosure",
+    "evidence",
+    "network",
+    "treaties",
+];
+
+/// Highest request allowance a demo client may have.
+pub const DEMO_MAX_REQUESTS_PER_MINUTE: u32 = 120;
+
+impl Client {
+    /// Why this client's demo settings are unsafe, if they are.
+    fn demo_violation(&self) -> Option<&'static str> {
+        match (&self.demo_token, self.demo) {
+            (Some(_), false) => Some("only demo clients may publish a token"),
+            (None, true) => Some("a demo client needs demo_token"),
+            (None, false) => None,
+            (Some(token), true) => {
+                let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+                if token.len() < 32
+                    || hex_lower32(&digest).as_slice() != self.token_sha256.as_bytes()
+                {
+                    Some("demo_token must be at least 32 characters and hash to token_sha256")
+                } else if self.authority_admin || self.metrics {
+                    Some("a demo client cannot forward operator operations or read metrics")
+                } else if self.requests_per_minute > DEMO_MAX_REQUESTS_PER_MINUTE {
+                    Some("a demo client is limited to 120 requests per minute")
+                } else if self
+                    .service_groups
+                    .iter()
+                    .any(|g| !DEMO_SERVICE_GROUPS.contains(&g.as_str()))
+                {
+                    Some("a demo client may only use read and verify service groups")
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 /// Pinned Genesis Mesh verification material for one network.
@@ -63,6 +121,10 @@ pub struct NetworkPolicy {
     /// Publish a minimal read-only topology for this network. Private by default.
     #[serde(default)]
     pub public_mesh: bool,
+    /// With `public_mesh`, also show this authority's active treaties to
+    /// sovereigns outside the gateway as external nodes (v0.65). Off by default.
+    #[serde(default)]
+    pub public_external_treaties: bool,
     /// Operator-pinned authority origin used by the explicit service allowlist.
     #[serde(default)]
     pub authority_url: Option<String>,
@@ -117,6 +179,9 @@ impl SecurityPolicy {
                     "invalid or duplicate client identity, credential, quota or scope".into(),
                 );
             }
+            if let Some(reason) = client.demo_violation() {
+                return Err(format!("client {}: {reason}", client.id));
+            }
         }
         for (name, network) in &self.networks {
             if network.additional_issuers.len() > 8 {
@@ -128,6 +193,7 @@ impl SecurityPolicy {
                     || !additional.additional_issuers.is_empty()
                     || !additional.required_roles.is_empty()
                     || additional.public_mesh
+                    || additional.public_external_treaties
                     || additional.authority_url.is_some()
                 {
                     return Err("additional issuers must be flat CRL sources; roles and service origin belong to the parent network".into());
