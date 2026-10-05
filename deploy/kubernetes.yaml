@@ -31,8 +31,9 @@ spec:
           minDomains: 2
       containers:
         - name: gateway
-          # Replace with your registry digest before applying.
-          image: registry.example.org/genesis-mesh-gateway:REPLACE_WITH_DIGEST
+          # The signed release image, pinned to the digest you verified with
+          # cosign (docs/distribution.md), or your registry's copy of it.
+          image: ghcr.io/genesismeshlabs/genesis-mesh-gateway@sha256:REPLACE_WITH_VERIFIED_DIGEST
           ports: [{name: http, containerPort: 8080}]
           env:
             - {name: GATEWAY_ADDR, value: "0.0.0.0:8080"}

@@ -30,6 +30,57 @@ jobs:
       - run: cargo test --locked --doc
       - run: cargo test --locked --features serde_json/preserve_order --lib canonical::tests
       - run: cargo build --locked --release --bin genesis-mesh-gateway
+  container:
+    name: Gateway image with the Network Authority image on ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-latest}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A coordinated change is tested against the core branch of the same
+      # name when it exists, and against main otherwise.
+      - name: Choose the core revision
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          ref=main
+          if git ls-remote --exit-code --heads https://github.com/GenesisMeshLabs/genesismesh.git "refs/heads/$BRANCH" > /dev/null; then ref="$BRANCH"; fi
+          echo "Testing with core revision: $ref"
+          echo "CORE_REF=$ref" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: GenesisMeshLabs/genesismesh
+          ref: ${{ env.CORE_REF }}
+          path: core
+      - name: The console's signing vectors are the core's
+        run: |
+          if [ -f core/conformance/vectors/admin_auth.json ]; then
+            cmp core/conformance/vectors/admin_auth.json tests/reference/admin_auth.json
+          else
+            echo "::notice::The core revision has no admin_auth vectors yet; skipped."
+          fi
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: {python-version: "3.14"}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      # Each architecture builds and runs natively on its own runner.
+      - name: Build both images
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          docker buildx build --load -t genesis-mesh-gateway:ci --build-arg VERSION="$version" --build-arg REVISION="$GITHUB_SHA" .
+          docker buildx build --load -t genesis-mesh:ci --build-arg VERSION="$(tr -d '[:space:]' < core/VERSION)" core
+      - name: Container smoke tests (gateway scenarios and the compose example)
+        run: |
+          if [ ! -f core/scripts/container_smoke.py ]; then
+            echo "::notice::The core revision has no container smoke harness yet (it arrives with v1.1); skipped."
+            exit 0
+          fi
+          python core/scripts/container_smoke.py --image genesis-mesh:ci --gateway-image genesis-mesh-gateway:ci \
+            --compose-file core/deploy/compose/docker-compose.images.yml \
+            --only gw-metadata --only gw-end-to-end --only gw-crl-refresh --only fed-two-sovereigns --only compose-example
   catalog:
     name: Authority catalog and signing vectors match the core
     runs-on: ubuntu-latest

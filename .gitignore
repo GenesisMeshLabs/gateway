@@ -7,8 +7,8 @@
 # Cargo.lock IS committed — this crate ships a binary.
 
 # Cloudflare tunnel secrets
-cloudflared/credentials.json
-cloudflared/*.json
+**/cloudflared/credentials.json
+**/cloudflared/*.json
 
 # Local deployment policy, credentials and verification output
 .local/

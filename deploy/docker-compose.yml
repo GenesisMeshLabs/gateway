@@ -4,7 +4,7 @@ services:
   # The trust core, served as a JSON API.
   gateway:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     image: genesis-mesh-gateway:latest
     restart: unless-stopped
@@ -23,8 +23,8 @@ services:
       TOKIO_MAX_BLOCKING_THREADS: ${TOKIO_MAX_BLOCKING_THREADS:-16}
       RUST_LOG: ${GATEWAY_LOG_FILTER:-info,tower_http=info}
     volumes:
-      - ./.local/policy.json:/run/gateway/policy.json:ro
-      - ./.local/redis.url:/run/gateway/redis.url:ro
+      - ../.local/policy.json:/run/gateway/policy.json:ro
+      - ../.local/redis.url:/run/gateway/redis.url:ro
       - gateway-state:/var/lib/gateway
     depends_on:
       quota:
@@ -51,7 +51,7 @@ services:
     restart: unless-stopped
     command: redis-server /run/redis/redis.conf
     volumes:
-      - ./.local/redis.conf:/run/redis/redis.conf:ro
+      - ../.local/redis.conf:/run/redis/redis.conf:ro
       - quota-state:/data
     read_only: true
     cap_drop: [ALL]

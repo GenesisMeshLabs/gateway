@@ -4,7 +4,7 @@
 #   cloudflared tunnel create genesis-mesh-gateway
 #   cloudflared tunnel route dns genesis-mesh-gateway <hostname>
 #
-# Usage: bash cloudflared/finish-setup.sh <hostname> [tunnel-name]
+# Usage: bash deploy/cloudflared/finish-setup.sh <hostname> [tunnel-name]
 set -euo pipefail
 
 HOSTNAME="${1:?usage: finish-setup.sh <hostname> [tunnel-name]}"
@@ -23,7 +23,7 @@ echo "tunnel ${TUNNEL_NAME} = ${UUID}"
 # Stage the credentials file the connector authenticates with.
 chmod +w "${HERE}/credentials.json" 2>/dev/null || true
 cp "${CF_DIR}/${UUID}.json" "${HERE}/credentials.json"
-echo "copied credentials -> cloudflared/credentials.json"
+echo "copied credentials -> deploy/cloudflared/credentials.json"
 
 # Render config.yml.
 cat > "${HERE}/config.yml" <<YAML

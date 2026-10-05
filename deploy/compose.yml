@@ -1,7 +1,9 @@
 name: genesis-mesh-gateway
 services:
   gateway:
-    # Supply an immutable image digest from your organization's registry.
+    # Supply an immutable, verified image digest: the signed release image
+    # ghcr.io/genesismeshlabs/genesis-mesh-gateway@sha256:... (docs/distribution.md)
+    # or your registry's copy of it.
     image: ${GATEWAY_IMAGE:?Set GATEWAY_IMAGE to your gateway image digest}
     restart: unless-stopped
     environment:
