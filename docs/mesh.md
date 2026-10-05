@@ -14,6 +14,27 @@ arbitrary claims, keys, origins and credentials are excluded from this projectio
 The diagram is an authority-reported read model, not a replacement for signature
 verification or a guarantee that a member operates a reachable application.
 
+### Members
+
+Network Authorities from Genesis Mesh 1.0.2 list attestations to operators
+only and give everyone else the count. To show a network's members, give the
+gateway a `read`-tier operator key for that authority: the tier opens the
+attestation list and the node roster and nothing else.
+
+```json
+"mesh_reader": {"key_id": "mesh-reader", "seed_file": "/run/gateway/mesh-reader.key"}
+```
+
+The seed file holds the key's base64 Ed25519 seed (lines starting with `#`
+are skipped, so a key written by `genesis-mesh keygen node` works). The
+gateway reads it at start and fails to start if it cannot. Each member read
+carries a version 2 admin signature for `GET /attestations?status=active`
+with the authority's public key from `anchors` (the CRL issuer's key) as its
+audience. On the authority, add the public key to `OPERATOR_PUBLIC_KEYS_JSON`
+and `"mesh-reader": "read"` to `OPERATOR_KEY_TIERS_JSON`. `mesh_reader`
+requires `public_mesh` and `authority_url`. Without it the network shows no
+members; a refused key is logged as `authority refused the mesh reader key`.
+
 The endpoint coalesces concurrent refreshes and caches for 20 seconds. Each
 authority read has a four-second deadline and a 2 MiB response bound. It exposes
 up to 16 domains, 256 active treaties and 64 public memberships per domain. The

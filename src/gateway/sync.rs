@@ -195,6 +195,7 @@ mod tests {
                     additional_issuers: Default::default(),
                     public_mesh: false,
                     public_external_treaties: false,
+                    mesh_reader: None,
                     authority_url: None,
                     anchors: [("authority".into(), key.public_key_b64())].into(),
                     crl: crl.clone(),

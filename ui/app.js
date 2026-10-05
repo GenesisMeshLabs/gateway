@@ -1,6 +1,6 @@
 import './mesh.js';
 import './tour.js';
-import {operatorHeaders} from './signing.js';
+import {adminRequestFor, operatorHeaders} from './signing.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -58,7 +58,7 @@ async function request(path,options={}){
 }
 function resetSession(){
   for(const id of ['federation-local','federation-peer'])$(id).replaceChildren(new Option('Connect to choose a network',''));
-  sessionGeneration++;session=null;connectedToken='';lastResult=undefined;
+  sessionGeneration++;session=null;connectedToken='';lastResult=undefined;audiences.clear();
   $('network-select').replaceChildren(new Option('Connect to load networks',''));
   $('network-data').replaceChildren(node('p','Enter a service token and select Load networks.'));
   $('network-state').textContent='Enter your token here, then select Load networks. The public mesh above needs no token.';
@@ -82,6 +82,18 @@ async function connect(){
 function renderNetworks(data){
   const container=$('network-data');container.replaceChildren();container.className='network-list';
   for(const n of data.networks){const card=node('article');card.append(node('h3',n.name),node('span',n.ready?'Ready':'Stale revocation data','pill'),node('p',n.services_configured?'Authority services configured':'Authority services not configured','connection-note'),node('pre',JSON.stringify({authorities:n.anchors,required_roles:n.required_roles,revocation:n.revocation,additional_issuers:n.additional_issuers||[]},null,2)));container.append(card);}
+}
+// Each authority's public key, which operator signatures name as their
+// audience (signature version 2), read once through the gateway.
+const audiences=new Map();
+// Admin signatures name the authority's public key (signature version 2).
+async function adminAudience(network,token){
+  if(audiences.has(network))return audiences.get(network);
+  const {response,data}=await request('/v1/networks/'+encodeURIComponent(network)+'/services/public-sovereign-metadata',{headers:{Authorization:'Bearer '+token}});
+  const key=data?.network_authority?.public_key;
+  if(!response.ok||typeof key!=='string'||!key)throw new Error('Cannot read the authority public key for signing ('+response.status+'). The token needs the network service group.');
+  audiences.set(network,key);
+  return key;
 }
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
@@ -110,7 +122,11 @@ async function send(){
           if(typeof signed[name]!=='string'||!signed[name])throw new Error('Signed headers must include '+name);
           headers[name]=signed[name];
         }
-      }else Object.assign(headers,await operatorHeaders(value,$('operator-seed').value,$('operator-id').value.trim()));
+      }else{
+        const params=Object.fromEntries(query);
+        const audience=await adminAudience($('network-select').value,token);
+        Object.assign(headers,await operatorHeaders(adminRequestFor(e,params,audience,e.body?value:{}),$('operator-seed').value,$('operator-id').value.trim()));
+      }
     }
     if(generation!==sessionGeneration)return;
     $('request-state').textContent='Sending...';const start=performance.now();

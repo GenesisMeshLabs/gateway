@@ -55,6 +55,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod admin_auth;
 pub mod canonical;
 pub mod crypto;
 pub mod error;

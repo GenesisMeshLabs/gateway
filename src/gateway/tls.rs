@@ -1,5 +1,6 @@
 //! Native mutual TLS using mounted server identity and an explicitly approved client CA.
-use std::{io::BufReader, sync::Arc};
+use rustls::pki_types::{pem, pem::PemObject, CertificateDer, PrivateKeyDer};
+use std::sync::Arc;
 
 pub(super) fn from_env() -> Result<Option<axum_server::tls_rustls::RustlsConfig>, String> {
     let paths = [
@@ -25,14 +26,15 @@ fn configuration(
     key: &[u8],
     ca: &[u8],
 ) -> Result<axum_server::tls_rustls::RustlsConfig, String> {
-    let chain = rustls_pemfile::certs(&mut BufReader::new(cert))
+    let chain = CertificateDer::pem_slice_iter(cert)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "invalid TLS certificate chain")?;
-    let key = rustls_pemfile::private_key(&mut BufReader::new(key))
-        .map_err(|_| "invalid TLS key")?
-        .ok_or("missing TLS key")?;
+    let key = PrivateKeyDer::from_pem_slice(key).map_err(|error| match error {
+        pem::Error::NoItemsFound => "missing TLS key",
+        _ => "invalid TLS key",
+    })?;
     let mut roots = rustls::RootCertStore::empty();
-    for cert in rustls_pemfile::certs(&mut BufReader::new(ca)) {
+    for cert in CertificateDer::pem_slice_iter(ca) {
         roots
             .add(cert.map_err(|_| "invalid client CA")?)
             .map_err(|_| "invalid client CA")?;

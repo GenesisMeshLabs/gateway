@@ -1783,7 +1783,7 @@
       "get": {
         "operationId": "attestations-list-attestations",
         "summary": "List attestations",
-        "description": "List persisted membership attestations. Upstream: /attestations",
+        "description": "List membership attestations to operators; count them for anyone else. Upstream: /attestations",
         "tags": [
           "attestations"
         ],
@@ -1858,7 +1858,7 @@
       "get": {
         "operationId": "attestations-sovereign-revocation-feed",
         "summary": "Sovereign revocation feed",
-        "description": "Publish a signed feed of revoked membership attestations. Upstream: /sovereign-revocation-feed",
+        "description": "Publish this sovereign's signed feed of revoked membership attestations. Upstream: /sovereign-revocation-feed",
         "tags": [
           "attestations"
         ],
@@ -1872,6 +1872,14 @@
             "name": "network",
             "in": "path",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issuer_sovereign_id",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string"
             }
