@@ -12,6 +12,16 @@ Set `GATEWAY_STATE_FILE=/var/lib/gateway/state.db`. Before its first startup run
 the **same image, policy and mounts** with `--init-state`. This verifies bootstrap
 CRLs and refuses to overwrite a file. Ordinary startup never creates missing
 state. Do not put automatic initialization in a restart or init-container loop.
+With the published image and a named volume:
+
+```sh
+docker run --rm \
+  -e GATEWAY_POLICY_FILE=/run/gateway/policy.json \
+  -e GATEWAY_STATE_FILE=/var/lib/gateway/state.db \
+  -v "$PWD/policy.json:/run/gateway/policy.json:ro" \
+  -v gateway-state:/var/lib/gateway \
+  ghcr.io/genesismeshlabs/genesis-mesh-gateway@sha256:<verified-digest> --init-state
+```
 `--check-config` needs exclusive access to that database; validate a stopped
 replica or a consistent backup, not the live database.
 

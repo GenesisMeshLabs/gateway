@@ -6,19 +6,30 @@ ships inside the same binary and always calls its own origin.
 
 ## Available distribution paths
 
-1. **Container:** build `Dockerfile` for `linux/amd64` or `linux/arm64`, publish
-   through your approved registry, and deploy by digest. No `target-cpu=native`
-   or x86-specific flags are embedded in the portable build.
+1. **Published image:** every release tag publishes
+   `ghcr.io/genesismeshlabs/genesis-mesh-gateway` for `linux/amd64` and
+   `linux/arm64` with SBOM and provenance, signed keylessly by this
+   repository's `distribution.yml` (see *Signed release artifacts* below).
+   Tags follow the Genesis Mesh rules: `X.Y.Z` is never moved; `X.Y` and
+   `latest` follow the newest release. Verify the signature, then deploy by
+   digest; mirror it into your approved registry if you need one.
+   To build it yourself instead, build `Dockerfile` for either platform. No
+   `target-cpu=native` or x86-specific flags are embedded in the portable
+   build.
 2. **Native binary:** build with `cargo build --locked --release --bin
    genesis-mesh-gateway --bin genesis-mesh-operator`, then run `pwsh tools/package.ps1 -Binary
    target/release/genesis-mesh-gateway -Platform linux-amd64`. Windows uses the
    `.exe` binary and platform `windows-amd64`. The packager checks the version,
    bundles an explicit allowlist, and emits a SHA-256 sidecar plus binary manifest.
-3. **CI artifacts:** manually dispatch `distribution.yml` to build Windows/Linux
-   binary ZIPs and a multi-platform OCI archive with SBOM and provenance. The
-   workflow uploads build artifacts; it does not publish a release or registry
-   image. Ubuntu 24.04 native binaries require a compatible glibc (the artifact
-   label records 2.39); the Debian-based container avoids that host dependency.
+3. **Release artifacts:** a release tag runs `distribution.yml`, which builds
+   Windows/Linux binary ZIPs and a multi-platform OCI archive of the published
+   image (the workflow checks that the archive and the pushed image have the
+   same digest), signs them, and attaches them to the GitHub release. A manual
+   dispatch, even on a release tag, builds and tests the same artifacts as
+   workflow artifacts and publishes nothing: it only reads the registry to
+   report whether the version is already published. Ubuntu 24.04 native
+   binaries require a compatible glibc (the artifact label records 2.39); the
+   Debian-based container avoids that host dependency.
 
 The Docker build runs the Rust compiler on the builder's native CPU and
 cross-compiles with explicit GNU linkers for AMD64 and ARM64. Build caches are
@@ -30,8 +41,8 @@ and [Cargo's target linker configuration](https://doc.rust-lang.org/cargo/refere
 
 Never ship `.local`, `.env`, tunnel credentials, client tokens or operational
 policy in the image or archive. The packaging script excludes them by allowlist.
-Checksums detect corruption; they are not publisher signatures. Verify artifact
-provenance and use your organization's signing pipeline before external release.
+Checksums detect corruption; they are not publisher signatures. The release
+signatures below are; verify them before deploying.
 
 For an offline transfer of a locally built multi-platform Docker image:
 
@@ -62,7 +73,7 @@ credentials. An authentic expired bootstrap CRL with a configured source URL is
 allowed to start but remains not ready until refresh succeeds. A configuration
 check alone is therefore not proof of readiness.
 
-Use `deploy/compose.yml` with `GATEWAY_IMAGE` set to your image digest and
+Use `deploy/compose.yml` with `GATEWAY_IMAGE` set to a verified image digest and
 `GATEWAY_POLICY_FILE` set to an absolute file path. The generic distribution has
 no Cloudflare account or developer-host dependency. TLS ingress is operated
 separately; Compose publishes only to host loopback.
@@ -71,7 +82,8 @@ separately; Compose publishes only to host loopback.
 
 `deploy/kubernetes.yaml` provides a ClusterIP service, two replicas, zero
 unavailable pods during updates, a disruption budget, and scheduling across at
-least two eligible nodes. Replace its image placeholder, create the
+least two eligible nodes. Replace its image digest placeholder with the digest
+you verified, create the
 `gateway-policy` Secret with the key `policy.json`, then apply it in your intended
 namespace. Use reachable HTTPS authority URLs; `host.docker.internal` is specific
 to the local Docker deployment and must not be copied to another environment.
@@ -134,9 +146,23 @@ cluster/CI before treating them as verified deployments.
 
 ## Signed release artifacts
 
-Tagged releases sign and immediately verify each native ZIP and the multiarchitecture
-OCI archive with Sigstore. Download the matching `.sigstore.json` bundle and
-verify the archive before extracting or importing it:
+Tagged releases sign and immediately verify the registry image, each native ZIP
+and the multiarchitecture OCI archive with Sigstore. Verify the image by digest:
+
+```sh
+IMAGE=ghcr.io/genesismeshlabs/genesis-mesh-gateway
+DIGEST="$(docker buildx imagetools inspect "$IMAGE:1.1.0" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+cosign verify "$IMAGE@$DIGEST" \
+  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/v1.1.0 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Use cosign 3 or later: the release workflow signs with cosign 3's bundle
+format, which cosign 2 reports as `no signatures found`. The GitHub release
+notes list the image digest.
+
+For the archive and ZIPs, download the matching `.sigstore.json` bundle and
+verify each file before extracting or importing it:
 
 ```sh
 cosign verify-blob gateway-oci.tar --bundle gateway-oci.tar.sigstore.json \
@@ -145,7 +171,16 @@ cosign verify-blob gateway-oci.tar --bundle gateway-oci.tar.sigstore.json \
 ```
 
 The OCI archive contains BuildKit SBOM and provenance attestations for both
-architectures. Import with an OCI-aware registry tool (for example skopeo);
-this archive is not a Docker `save` archive. The signature covers the archive
-bytes, including the attestations. Verify native ZIPs with the same command
-and their matching bundle. See [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/).
+architectures. The signature covers the archive bytes, including the
+attestations. Verify native ZIPs with the same command and their matching
+bundle. See [Sigstore verification](https://docs.sigstore.dev/cosign/verifying/verify/).
+
+Import the archive with an OCI-aware registry tool such as skopeo; it is not a
+Docker `save` archive. Its index names the image
+`ghcr.io/genesismeshlabs/genesis-mesh-gateway:latest` whatever the release, so
+name it when you import it, and deploy it by the digest the release notes list:
+
+```sh
+skopeo copy --all --preserve-digests oci-archive:gateway-oci.tar \
+  docker://registry.example.com/genesis-mesh-gateway:1.1.0
+```

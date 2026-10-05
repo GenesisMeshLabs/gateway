@@ -1,10 +1,13 @@
 target/
 dist/
 .git/
+# Checked out or written by the workflows next to the gateway source.
+core/
+reports/
 **/*.key
 **/*.pub
-cloudflared/credentials.json
-cloudflared/*.json
+**/cloudflared/credentials.json
+**/cloudflared/*.json
 .env
 
 .local

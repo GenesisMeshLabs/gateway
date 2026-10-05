@@ -2,11 +2,11 @@
 # No Cloudflare account or login required; the public hostname is a random
 # *.trycloudflare.com that changes every restart.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.quick.yml up -d gateway cloudflared-quick
-#   docker compose -f docker-compose.yml -f docker-compose.quick.yml logs cloudflared-quick
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.quick.yml up -d gateway cloudflared-quick
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.quick.yml logs cloudflared-quick
 #
 # For a stable hostname on your own domain use the `cloudflared` service in
-# docker-compose.yml instead (see cloudflared/finish-setup.sh).
+# deploy/docker-compose.yml instead (see deploy/cloudflared/finish-setup.sh).
 name: genesis-mesh-gateway
 
 services:

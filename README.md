@@ -55,12 +55,17 @@ private-key possession or authorize arbitrary application actions.
 
 ## Run
 
+Each release publishes a signed image, `ghcr.io/genesismeshlabs/genesis-mesh-gateway`,
+for `linux/amd64` and `linux/arm64`; verify it and deploy by digest (see
+[distribution](docs/distribution.md)).
+
 Provision the policy and credentials described in [operations](docs/operations.md).
-For Compose, place policy at `.local/policy.json`, which is excluded from Git
-and container build context. Then:
+To build and run from this checkout with Compose, place policy at
+`.local/policy.json`, which is excluded from Git and container build context.
+Then:
 
 ```sh
-docker compose up --build -d gateway
+docker compose -f deploy/docker-compose.yml up --build -d gateway
 ```
 
 The existing named tunnel configuration serves the same Rust process over HTTPS.
@@ -88,8 +93,8 @@ or complete Genesis Mesh Network Authority.
 
 ## Distribution and replicas
 
-See [distribution](docs/distribution.md) for portable images, checksummed binary
-bundles, configuration validation and Kubernetes rolling deployments. The
+See [distribution](docs/distribution.md) for the signed release image, signed
+binary bundles, configuration validation and Kubernetes rolling deployments. The
 `--check-config` command validates operator policy without starting the server.
 
 See [authority services](docs/services.md) for the full service catalog, browser
