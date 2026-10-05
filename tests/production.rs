@@ -231,6 +231,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
         additional_issuers: Default::default(),
         public_mesh: false,
         public_external_treaties: false,
+        mesh_reader: None,
         authority_url: None,
         crl_url: None,
         allow_http: false,
@@ -1243,6 +1244,174 @@ async fn public_mesh_is_opt_in_and_never_exposes_private_policy() {
     assert_eq!(body["networks"], json!([]));
     assert!(!body.to_string().contains("public-agency"));
     assert!(!body.to_string().contains(TOKEN));
+}
+
+/// A public mesh network with a mesh reader whose seed sits in a fresh file.
+fn mesh_reader_fixture(origin: &str, reader: &KeyPair) -> (Config, std::path::PathBuf) {
+    let folder = std::env::temp_dir().join(format!("mesh-reader-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let seed_file = folder.join("mesh-reader.key");
+    std::fs::write(
+        &seed_file,
+        format!("# Ed25519 Private Key\n{}\n", reader.seed_b64()),
+    )
+    .unwrap();
+    let mut cfg = service_fixture(origin);
+    let network = cfg
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap();
+    network.public_mesh = true;
+    network.mesh_reader = Some(genesis_mesh::gateway::security::MeshReader {
+        key_id: "mesh-reader".into(),
+        seed_file: seed_file.to_string_lossy().into_owned(),
+        key: None,
+    });
+    (cfg, folder)
+}
+
+#[tokio::test]
+async fn public_mesh_reads_members_with_a_read_operator_key() {
+    use genesis_mesh::admin_auth::{signing_payload, AdminRequest};
+    let reader = KeyPair::generate().unwrap();
+    let reader_public = reader.public_key_b64();
+    let audience = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let expected_audience = audience.clone();
+    let signed_reads = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = signed_reads.clone();
+    let window = |subject: &str, public: bool| json!({"status":"active","attestation":{"attestation_id":format!("att-{subject}"),"status":"active","issuer_sovereign_id":"public-agency","subject_id":subject,"roles":["role:client"],"claims":{"public_mesh":public,"demo":true},"issued_at":Utc::now()-chrono::Duration::hours(1),"valid_from":Utc::now()-chrono::Duration::hours(1),"expires_at":Utc::now()+chrono::Duration::hours(1)}});
+    let listing = json!({"count":2,"attestations":[window("demo:visitor", true), window("private-member", false)]});
+    // The authority's check (genesis_mesh.na_service.auth): a version 2
+    // signature over GET /attestations?status=active, body {}, for its key.
+    let attestations = move |headers: axum::http::HeaderMap| {
+        let audience = expected_audience.lock().unwrap().clone();
+        let observed = observed.clone();
+        let listing = listing.clone();
+        let reader_public = reader_public.clone();
+        async move {
+            let header = |name: &str| {
+                headers
+                    .get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned()
+            };
+            if header("x-admin-key-id").is_empty() {
+                return axum::Json(json!({"count":2}));
+            }
+            assert_eq!(header("x-admin-key-id"), "mesh-reader");
+            let query = [("status".to_string(), vec!["active".to_string()])].into();
+            let payload = signing_payload(
+                &AdminRequest {
+                    method: "GET",
+                    path: "/attestations",
+                    query: &query,
+                    audience: &audience,
+                    body: &json!({}),
+                },
+                "mesh-reader",
+                &header("x-admin-timestamp"),
+                &header("x-admin-nonce"),
+            );
+            assert!(chrono::DateTime::parse_from_rfc3339(&header("x-admin-timestamp")).is_ok());
+            assert!(genesis_mesh::crypto::verify_b64(
+                payload.as_bytes(),
+                &header("x-admin-signature"),
+                &reader_public
+            )
+            .unwrap());
+            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            axum::Json(listing)
+        }
+    };
+    let (origin, task) = mock_authority(
+        Router::new()
+            .route("/attestations", axum::routing::get(attestations))
+            .route(
+                "/recognition-treaties",
+                axum::routing::get(|| async { axum::Json(json!({"recognition_treaties":[]})) }),
+            ),
+    )
+    .await;
+    let (cfg, folder) = mesh_reader_fixture(&origin, &reader);
+    *audience.lock().unwrap() =
+        cfg.security.as_ref().unwrap().networks["public-agency"].anchors["authority"].clone();
+    let (status, body) = call(&router(cfg), "/v1/mesh", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(signed_reads.load(std::sync::atomic::Ordering::Relaxed), 1);
+    let subjects: Vec<&str> = body["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["subject"].as_str().unwrap())
+        .collect();
+    assert_eq!(subjects, ["demo:visitor"]);
+    assert!(!body.to_string().contains(&reader.seed_b64()));
+    assert!(!body.to_string().contains("mesh-reader"));
+    task.abort();
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+#[test]
+fn mesh_reader_needs_a_public_network_and_a_readable_seed() {
+    let reader = KeyPair::generate().unwrap();
+    let (mut cfg, folder) = mesh_reader_fixture("http://127.0.0.1:9", &reader);
+    assert!(cfg.prepare().is_ok());
+    let network = |cfg: &mut Config| {
+        cfg.security
+            .as_mut()
+            .unwrap()
+            .networks
+            .get_mut("public-agency")
+            .unwrap()
+            .clone()
+    };
+    let mut private = cfg.clone();
+    private
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .public_mesh = false;
+    assert!(private
+        .prepare()
+        .unwrap_err()
+        .contains("mesh_reader requires public_mesh"));
+    let mut missing = cfg.clone();
+    let mut reader_policy = network(&mut missing).mesh_reader.unwrap();
+    reader_policy.key = None;
+    reader_policy.seed_file = folder.join("absent.key").to_string_lossy().into_owned();
+    missing
+        .security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .mesh_reader = Some(reader_policy);
+    assert!(missing
+        .prepare()
+        .unwrap_err()
+        .contains("cannot read mesh_reader seed_file"));
+    std::fs::write(folder.join("bad.key"), "not a seed\n").unwrap();
+    let mut bad = cfg.clone();
+    let mut reader_policy = network(&mut bad).mesh_reader.unwrap();
+    reader_policy.key = None;
+    reader_policy.seed_file = folder.join("bad.key").to_string_lossy().into_owned();
+    bad.security
+        .as_mut()
+        .unwrap()
+        .networks
+        .get_mut("public-agency")
+        .unwrap()
+        .mesh_reader = Some(reader_policy);
+    assert!(bad.prepare().unwrap_err().contains("base64 Ed25519 seed"));
+    std::fs::remove_dir_all(folder).unwrap();
 }
 
 #[tokio::test]

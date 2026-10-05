@@ -15,8 +15,53 @@ export function canonical(value) {
   throw new Error('Unsupported JSON value');
 }
 
-export async function operatorHeaders(body, seedBase64, keyId) {
+// Path parameters that may span several segments (`kv:vault/secret`), as in
+// the gateway's services.rs; every other parameter is exactly one segment.
+const MULTI_SEGMENT = ['resource_id'];
+
+/**
+ * What the Network Authority will see for a catalog operation forwarded by
+ * the gateway: the decoded upstream path with its parameters filled in, and
+ * the query parameters the gateway forwards (`{name: [value]}`).
+ */
+export function adminRequestFor(operation, params, audience, body) {
+  const segments = [];
+  for (const segment of operation.upstream_path.replace(/^\//, '').split('/')) {
+    const name = segment.match(/^\{(.+)\}$/)?.[1];
+    if (!name) { segments.push(segment); continue; }
+    const value = params[name];
+    if (!value) throw new Error('Enter ' + name + '.');
+    segments.push(...(MULTI_SEGMENT.includes(name) ? value.split('/') : [value]));
+  }
+  const query = {};
+  for (const name of operation.query || []) if (params[name]) query[name] = [String(params[name])];
+  return {method: operation.method, path: '/' + segments.join('/'), query, audience, body};
+}
+
+/** The canonical bytes an operator signs (signature version 2, Genesis Mesh 1.0.2). */
+export function adminSigningPayload(request, keyId, timestamp, nonce) {
+  if (!request.path.startsWith('/')) throw new Error('Admin request path must start with /.');
+  return canonical({
+    v: 2,
+    method: request.method.toUpperCase(),
+    path: request.path,
+    query: request.query || {},
+    audience: request.audience,
+    body: request.body ?? {},
+    key_id: keyId,
+    timestamp,
+    nonce,
+  });
+}
+
+/**
+ * The four admin headers for one request. The signature binds the method,
+ * path, query, the authority's public key and the body, so it is valid only
+ * for this request at this authority.
+ */
+export async function operatorHeaders(request, seedBase64, keyId, fixed = {}) {
   if (!keyId || !/^[\x21-\x7e]{1,256}$/.test(keyId)) throw new Error('Enter a valid operator key ID.');
+  if (!request?.audience) throw new Error('The authority public key is unknown.');
   let seed;
   try { seed = Uint8Array.from(atob(seedBase64.trim()), c => c.charCodeAt(0)); }
   catch { throw new Error('Operator seed must be base64.'); }
@@ -26,8 +71,8 @@ export async function operatorHeaders(body, seedBase64, keyId) {
   encoded.set(seed,16);
   try {
     const key = await crypto.subtle.importKey('pkcs8', encoded, 'Ed25519', false, ['sign']);
-    const timestamp = new Date().toISOString(), nonce = crypto.randomUUID();
-    const payload = canonical({body, key_id:keyId, timestamp, nonce});
+    const timestamp = fixed.timestamp || new Date().toISOString(), nonce = fixed.nonce || crypto.randomUUID();
+    const payload = adminSigningPayload(request, keyId, timestamp, nonce);
     const signature = new Uint8Array(await crypto.subtle.sign('Ed25519',key,new TextEncoder().encode(payload)));
     return {'X-Admin-Key-Id':keyId,'X-Admin-Timestamp':timestamp,'X-Admin-Nonce':nonce,'X-Admin-Signature':btoa(String.fromCharCode(...signature))};
   } finally { seed.fill(0); encoded.fill(0); }

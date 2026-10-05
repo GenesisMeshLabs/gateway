@@ -30,7 +30,13 @@ describe each HTTP method, resource parameter, query field and request example.
 4. For operator operations, open **Operator authorization**, enter your registered
    key ID and base64 Ed25519 seed, or paste SDK-generated `X-Admin-*` headers.
    Signatures are generated in the browser. Keys never reach the gateway and are
-   not saved to browser storage. Clear the session when finished.
+   not saved to browser storage. Clear the session when finished. A signature
+   (version 2, Genesis Mesh 1.0.2) covers the HTTP method, the authority path the
+   gateway forwards to, the forwarded query parameters, the authority's
+   public key and the body, so it is valid only for that one request at that
+   one authority. The console reads the public key through the network's
+   `public-sovereign-metadata` operation; SDK-generated headers must be signed
+   for the authority path, not the gateway path.
 5. Send the request and inspect both the HTTP status and protocol result
    (`accepted`, `valid`, `trusted`, or denial reason). A 200 is not a trust grant.
 
@@ -68,7 +74,10 @@ deployment publishes at `/demo-data/` (see `genesismesh/infrastructure/mesh-demo
 
 A network may also set `public_external_treaties: true` (with `public_mesh`)
 to show its treaties to sovereigns outside the gateway as external nodes in
-the live mesh. It is off by default.
+the live mesh. It is off by default. With `mesh_reader` (see
+[mesh operations](mesh.md#members)) the live mesh also shows the network's
+published members. A demo client's own *List attestations* call still returns
+only the count: the authority lists attestations to operators.
 
 ## Operator configuration
 
@@ -89,7 +98,12 @@ These extend the existing client policy; token digest, quota and allowed network
 are still required. An empty group set disables authority service access.
 `authority_admin: true` permits forwarding signed operator operations; it does
 not replace the authority's signature, nonce, key revocation or operator-tier
-checks. The node roster is treated as an operator operation.
+checks. Because the signature binds the method, path, query and target
+authority's key, a captured signed request cannot be replayed to another
+route, target or authority. The console itself trusts the gateway that serves
+it: it reads the authority key and the forwarded path through that gateway, so
+sign with an SDK, from metadata you verified yourself, when the gateway is not
+under your control. The node roster is treated as an operator operation.
 
 The gateway forwards only allowlisted methods/paths and the four operator
 signature headers. It never forwards gateway bearer tokens, cookies or client

@@ -257,7 +257,7 @@
     "id": "attestations-list-attestations",
     "group": "attestations",
     "name": "List attestations",
-    "description": "List persisted membership attestations.",
+    "description": "List membership attestations to operators; count them for anyone else.",
     "method": "GET",
     "upstream_path": "/attestations",
     "admin": false,
@@ -273,12 +273,14 @@
     "id": "attestations-sovereign-revocation-feed",
     "group": "attestations",
     "name": "Sovereign revocation feed",
-    "description": "Publish a signed feed of revoked membership attestations.",
+    "description": "Publish this sovereign's signed feed of revoked membership attestations.",
     "method": "GET",
     "upstream_path": "/sovereign-revocation-feed",
     "admin": false,
     "parameters": [],
-    "query": [],
+    "query": [
+      "issuer_sovereign_id"
+    ],
     "body": null
   },
   {

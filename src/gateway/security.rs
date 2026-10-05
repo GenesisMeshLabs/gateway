@@ -1,7 +1,7 @@
 //! Operator-owned, immutable trust and client authorization policy.
 
 use crate::{
-    crypto::{self, CachedPublicKey},
+    crypto::{self, CachedPublicKey, KeyPair},
     models::{CertificateRevocationList, JoinCertificate, Signed},
     trust::TrustAnchors,
 };
@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 
 /// Loaded once at startup. Replace atomically and restart to apply changes.
@@ -125,6 +126,10 @@ pub struct NetworkPolicy {
     /// sovereigns outside the gateway as external nodes (v0.65). Off by default.
     #[serde(default)]
     pub public_external_treaties: bool,
+    /// With `public_mesh`, read the authority's attestation list with this
+    /// operator key (v1.0.2). Authorities list attestations to operators only.
+    #[serde(default)]
+    pub mesh_reader: Option<MeshReader>,
     /// Operator-pinned authority origin used by the explicit service allowlist.
     #[serde(default)]
     pub authority_url: Option<String>,
@@ -149,6 +154,38 @@ pub struct NetworkPolicy {
     /// First revocation entry for each certificate ID, prepared with the snapshot.
     #[serde(skip)]
     pub revoked_index: HashMap<String, usize>,
+}
+
+/// A `read`-tier operator key the public mesh view signs its member reads with.
+///
+/// The authority lists attestations to operators only (Genesis Mesh v1.0.2);
+/// a `read` key opens that list and the node roster, and nothing else. The
+/// view still shows only members whose attestation sets
+/// `claims.public_mesh: true`.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeshReader {
+    /// The key's ID in the authority's `OPERATOR_PUBLIC_KEYS_JSON`.
+    pub key_id: String,
+    /// File holding the key's base64 Ed25519 seed; `#` lines are skipped.
+    pub seed_file: String,
+    /// The key read from `seed_file`, filled when the policy is prepared.
+    #[serde(skip)]
+    pub key: Option<Arc<KeyPair>>,
+}
+
+impl MeshReader {
+    fn read_key(&self) -> Result<KeyPair, String> {
+        let text = std::fs::read_to_string(&self.seed_file)
+            .map_err(|_| "cannot read mesh_reader seed_file".to_string())?;
+        let seed: String = text
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        KeyPair::from_seed_b64(&seed)
+            .map_err(|_| "mesh_reader seed_file must hold a base64 Ed25519 seed".into())
+    }
 }
 
 impl SecurityPolicy {
@@ -194,6 +231,7 @@ impl SecurityPolicy {
                     || !additional.required_roles.is_empty()
                     || additional.public_mesh
                     || additional.public_external_treaties
+                    || additional.mesh_reader.is_some()
                     || additional.authority_url.is_some()
                 {
                     return Err("additional issuers must be flat CRL sources; roles and service origin belong to the parent network".into());
@@ -237,6 +275,18 @@ impl SecurityPolicy {
                     return Err("CRL URL requires HTTPS or explicit private HTTP opt-in, without credentials or fragment".into());
                 }
             }
+            if let Some(reader) = &network.mesh_reader {
+                if !network.public_mesh || network.authority_url.is_none() {
+                    return Err("mesh_reader requires public_mesh and authority_url".into());
+                }
+                if reader.key_id.is_empty()
+                    || reader.key_id.len() > 128
+                    || !reader.key_id.bytes().all(|b| b.is_ascii_graphic())
+                    || reader.seed_file.is_empty()
+                {
+                    return Err("mesh_reader needs a printable key_id and a seed_file".into());
+                }
+            }
             if name.is_empty() || network.anchors.is_empty() {
                 return Err("network name and anchors must not be empty".into());
             }
@@ -254,6 +304,21 @@ impl SecurityPolicy {
                 || (!network.primary_ready(Utc::now()) && network.crl_url.is_none())
             {
                 return Err("CRL is invalid, stale, future-dated or below minimum sequence".into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Read each mesh reader's key from its seed file, once, after a successful validate.
+    pub fn load_mesh_readers(&mut self) -> Result<(), String> {
+        for (name, network) in &mut self.networks {
+            if let Some(reader) = &mut network.mesh_reader {
+                if reader.key.is_none() {
+                    let key = reader
+                        .read_key()
+                        .map_err(|e| format!("network {name}: {e}"))?;
+                    reader.key = Some(Arc::new(key));
+                }
             }
         }
         Ok(())

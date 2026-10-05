@@ -131,6 +131,7 @@ impl Config {
     pub fn prepare(&mut self) -> Result<(), String> {
         self.validate()?;
         if let Some(security) = &mut self.security {
+            security.load_mesh_readers()?;
             security.rebuild_indexes();
         }
         Ok(())

@@ -1,10 +1,15 @@
 //! Opt-in, bounded public topology. Never forwards credentials or private records.
 use super::AppState;
+use crate::{
+    admin_auth::{self, AdminRequest},
+    crypto::KeyPair,
+};
 use axum::{extract::State, response::IntoResponse, Json};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -15,13 +20,56 @@ pub(super) async fn script() -> impl IntoResponse {
     )
 }
 
-async fn read(client: &reqwest::Client, origin: &str, path: &str) -> Result<Value, ()> {
-    let mut response = client
-        .get(format!("{}{path}", origin.trim_end_matches('/')))
-        .timeout(Duration::from_secs(4))
-        .send()
-        .await
-        .map_err(|_| ())?;
+/// A network's mesh reader: an operator key and the authority it signs for.
+struct Reader {
+    key_id: String,
+    key: Arc<KeyPair>,
+    /// The authority's public key, which version 2 signatures name (v1.0.2).
+    audience: String,
+}
+
+impl Reader {
+    /// Operator headers for one `GET` of `url`, signed as the authority checks them.
+    fn headers(&self, url: &reqwest::Url) -> [(&'static str, String); 4] {
+        let mut query: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (name, value) in url.query_pairs() {
+            query
+                .entry(name.into_owned())
+                .or_default()
+                .push(value.into_owned());
+        }
+        let request = AdminRequest {
+            method: "GET",
+            path: url.path(),
+            query: &query,
+            audience: &self.audience,
+            body: &json!({}),
+        };
+        let timestamp = Utc::now().to_rfc3339_opts(SecondsFormat::Micros, false);
+        let nonce = uuid::Uuid::new_v4().to_string();
+        admin_auth::sign(&self.key, &self.key_id, &request, &timestamp, &nonce)
+    }
+}
+
+async fn read(
+    client: &reqwest::Client,
+    origin: &str,
+    path: &str,
+    reader: Option<&Reader>,
+) -> Result<Value, ()> {
+    let url =
+        reqwest::Url::parse(&format!("{}{path}", origin.trim_end_matches('/'))).map_err(|_| ())?;
+    let mut request = client.get(url.clone()).timeout(Duration::from_secs(4));
+    if let Some(reader) = reader {
+        for (name, value) in reader.headers(&url) {
+            request = request.header(name, value);
+        }
+    }
+    let mut response = request.send().await.map_err(|_| ())?;
+    if reader.is_some() && matches!(response.status().as_u16(), 401 | 403) {
+        // The key is unknown to the authority, revoked or not of the read tier.
+        tracing::warn!(target: "audit", status = response.status().as_u16(), "authority refused the mesh reader key");
+    }
     if !response.status().is_success() || response.content_length().is_some_and(|n| n > 2_097_152) {
         return Err(());
     }
@@ -181,8 +229,17 @@ pub(super) async fn overview(State(state): State<AppState>) -> Json<Value> {
             let keys = network.verifying_keys.clone();
             let visible = visible.clone();
             let show_external = network.public_external_treaties;
+            // Authorities list attestations to operators only (v1.0.2); without
+            // a reader the view gets a count and shows no members.
+            let reader = network.mesh_reader.as_ref().and_then(|r| {
+                Some(Reader {
+                    key_id: r.key_id.clone(),
+                    key: r.key.clone()?,
+                    audience: network.anchors.get(&network.crl.issuer)?.clone(),
+                })
+            });
             tasks.spawn(async move {
-                let (treaties, attestations, dashboard, feed) = tokio::join!(read(&client, &origin, "/recognition-treaties?status=active"), read(&client, &origin, "/attestations?status=active"), read(&client, &origin, "/dashboard.json"), read(&client, &origin, "/sovereign-revocation-feed"));
+                let (treaties, attestations, dashboard, feed) = tokio::join!(read(&client, &origin, "/recognition-treaties?status=active", None), read(&client, &origin, "/attestations?status=active", reader.as_ref()), read(&client, &origin, "/dashboard.json", None), read(&client, &origin, "/sovereign-revocation-feed", None));
                 // A public reference publishes no attestation listing; treaties decide availability.
                 let available = treaties.is_ok();
                 // Partial failures never retain old links or present stale counts as live.
