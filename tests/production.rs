@@ -22,6 +22,14 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-production-service-token-32-bytes-minimum";
 
+/// Lowercase hex SHA-256, the `token_sha256` form of a client policy.
+fn sha256_hex(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 #[tokio::test]
 async fn durable_gateway_restart_restores_revocations_and_audit_without_upstream() {
     use genesis_mesh::gateway::durable::DurableState;
@@ -246,7 +254,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
         service_groups: Default::default(),
         authority_admin: false,
         id: "agency-service".into(),
-        token_sha256: format!("{:x}", Sha256::digest(TOKEN.as_bytes())),
+        token_sha256: sha256_hex(TOKEN.as_bytes()),
         networks: ["public-agency".into()].into(),
         metrics: false,
         requests_per_minute: 100,
@@ -1100,7 +1108,7 @@ const DEMO_TOKEN: &str = "public-demo-token-for-the-mesh-console-0001";
 fn demo_client() -> genesis_mesh::gateway::security::Client {
     let mut client = fixture().0.security.unwrap().clients.remove(0);
     client.id = "mesh-demo".into();
-    client.token_sha256 = format!("{:x}", Sha256::digest(DEMO_TOKEN.as_bytes()));
+    client.token_sha256 = sha256_hex(DEMO_TOKEN.as_bytes());
     client.demo = true;
     client.demo_token = Some(DEMO_TOKEN.into());
     client.requests_per_minute = 60;
