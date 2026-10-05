@@ -46,7 +46,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "timeout", "limit"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2"
 uuid = { version = "1", features = ["v4"] }
 tracing-appender = "0.2"
