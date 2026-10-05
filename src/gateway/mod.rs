@@ -24,6 +24,7 @@ mod ui;
 use std::sync::Arc;
 
 use axum::routing::{get, post};
+use axum::serve::ListenerExt;
 use axum::Router;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -113,7 +114,7 @@ fn build_router(cfg: Config) -> (Router, AppState) {
     }
     let guarded = guarded
         .route(
-            "/v1/networks/:network/services/:operation",
+            "/v1/networks/{network}/services/{operation}",
             axum::routing::any(services::execute),
         )
         .route("/metrics", get(runtime::metrics))
@@ -179,11 +180,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         result?;
         return Ok(());
     }
-    let listener = TcpListener::bind(addr).await?;
+    let listener = TcpListener::bind(addr).await?.tap_io(|tcp| {
+        if let Err(error) = tcp.set_nodelay(true) {
+            tracing::trace!(%error, "could not set TCP_NODELAY");
+        }
+    });
     tracing::info!(%addr, "listening");
 
     axum::serve(listener, app)
-        .tcp_nodelay(true)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
     refresh.abort();

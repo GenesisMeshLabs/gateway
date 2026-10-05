@@ -40,7 +40,7 @@ impl DistributedQuota {
     pub async fn admit(&self, client: &str, limit: u32) -> Result<bool, QuotaUnavailable> {
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             let mut connection = self.connection().await?;
-            let key = format!("gateway:quota:{:x}", Sha256::digest(format!("{}\0{client}", self.namespace).as_bytes()));
+            let key = quota_key(&self.namespace, client);
             let script = redis::Script::new("local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n>=tonumber(ARGV[1]) then return 0 end; n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],60000) end; return 1");
             let allowed: i32 = script.key(key).arg(limit).invoke_async(&mut connection).await.map_err(|_| ())?;
             Ok::<bool, ()>(allowed == 1)
@@ -61,9 +61,30 @@ impl DistributedQuota {
     }
 }
 
+/// Redis key of one client's allowance in a namespace, as lowercase hex of
+/// SHA-256 over `namespace\0client`. Replicas of different versions share these
+/// keys during a rolling upgrade, so the format must not change.
+fn quota_key(namespace: &str, client: &str) -> String {
+    use std::fmt::Write as _;
+    let digest = Sha256::digest(format!("{namespace}\0{client}").as_bytes());
+    digest
+        .iter()
+        .fold(String::from("gateway:quota:"), |mut key, byte| {
+            let _ = write!(key, "{byte:02x}");
+            key
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quota_key_format_is_stable_across_versions() {
+        assert_eq!(
+            quota_key("pilot", "client-a"),
+            "gateway:quota:f24a8fd3d18793559a2ce7841fa9d31567a80094c179039c312b0456cbc2c38e"
+        );
+    }
     #[tokio::test]
     #[ignore = "requires GATEWAY_TEST_REDIS_URL pointing to an isolated test Redis"]
     async fn two_independent_replicas_share_one_atomic_allowance() {
