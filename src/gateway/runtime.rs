@@ -88,7 +88,13 @@ fn route_label(path: &str) -> &'static str {
         "/v1/networks" => "/v1/networks",
         "/openapi.json" => "/openapi.json",
         "/assets/app.js" => "/assets/app.js",
+        "/assets/signing.js" => "/assets/signing.js",
+        "/assets/mesh.js" => "/assets/mesh.js",
+        "/assets/tour.js" => "/assets/tour.js",
         "/assets/style.css" => "/assets/style.css",
+        "/v1/services" => "/v1/services",
+        "/v1/mesh" => "/v1/mesh",
+        "/v1/demo" => "/v1/demo",
         "/health" => "/health",
         "/ready" => "/ready",
         "/metrics" => "/metrics",
@@ -101,6 +107,24 @@ fn route_label(path: &str) -> &'static str {
         }
         _ => "unmatched",
     }
+}
+
+/// Routes whose requests are written to the durable audit store: the ones
+/// that need a client credential. Probes, public pages, static assets, the
+/// published specification, the public mesh view and unknown paths are logged
+/// only. Anyone could otherwise fill the store, which fails closed (every
+/// request then answers 503) (v1.1.0).
+fn durably_audited(route: &str) -> bool {
+    matches!(
+        route,
+        "/metrics"
+            | "/v1/networks"
+            | "/verify"
+            | "/verify/batch"
+            | "/keygen"
+            | "/issue"
+            | "/v1/networks/{network}/services/{operation}"
+    )
 }
 
 pub(super) async fn observe(
@@ -120,11 +144,7 @@ pub(super) async fn observe(
     let method = req.method().clone();
     // Never log raw URI, query, headers or bodies, which can contain secrets.
     let route = route_label(req.uri().path());
-    let audit = state
-        .cfg
-        .durable
-        .clone()
-        .filter(|_| !matches!(route, "/health" | "/ready"));
+    let audit = state.cfg.durable.clone().filter(|_| durably_audited(route));
     let _audit_permit = if audit.is_some() {
         match state.audit_workers.clone().try_acquire_owned() {
             Ok(permit) => Some(permit),
