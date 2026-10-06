@@ -408,6 +408,52 @@ async fn network_data_requires_auth_and_never_exposes_client_credentials() {
     let (status, spec) = call(&app, "/openapi.json", None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(spec["openapi"], "3.1.0");
+    assert_eq!(spec["info"]["version"], env!("CARGO_PKG_VERSION"));
+}
+
+/// Anonymous traffic to public pages and unknown paths writes nothing to the
+/// durable audit store, which fails closed when full (v1.1.0).
+#[tokio::test]
+async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-audit-scope-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    DurableState::initialize(&path).unwrap();
+    let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
+    let (mut cfg, _, _) = fixture();
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    cfg.durable = Some(durable.clone());
+    let app = router(cfg);
+
+    for path in [
+        "/",
+        "/api",
+        "/assets/app.js",
+        "/openapi.json",
+        "/no/such/path",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_ne!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+    }
+    assert!(durable.pending_audit().unwrap().is_empty());
+
+    assert_eq!(
+        call(&app, "/v1/networks", None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let pending = durable.pending_audit().unwrap();
+    let phases: Vec<_> = pending
+        .iter()
+        .map(|e| e["event"]["phase"].clone())
+        .collect();
+    assert_eq!(phases, vec![json!("started"), json!("completed")]);
+    assert_eq!(pending[0]["event"]["route"], "/v1/networks");
+    std::fs::remove_dir_all(folder).ok();
 }
 
 #[tokio::test]

@@ -38,7 +38,11 @@ pub(super) async fn specification() -> Json<Value> {
     static SPEC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     Json(
         SPEC.get_or_init(|| {
-            serde_json::from_str(include_str!("../../ui/openapi.json")).expect("embedded OpenAPI")
+            let mut spec: Value = serde_json::from_str(include_str!("../../ui/openapi.json"))
+                .expect("embedded OpenAPI");
+            // The document describes this build, whatever the file says.
+            spec["info"]["version"] = Value::from(env!("CARGO_PKG_VERSION"));
+            spec
         })
         .clone(),
     )
