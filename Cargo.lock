@@ -609,7 +609,7 @@ dependencies = [
  "arc-swap",
  "axum",
  "axum-server",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "ed25519-dalek",
  "fs2",
