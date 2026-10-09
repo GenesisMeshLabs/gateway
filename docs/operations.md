@@ -101,7 +101,12 @@ denied; `429` means the per-client quota is exhausted; `503` means capacity or
 readiness is unavailable. Framework JSON errors use `400`/`422`, oversized bodies
 use `413`, and request deadlines use `408`. Framework rejections may have plain
 text or empty bodies; application errors have `error` and `code` fields.
-`429` and application `503` include a conservative `Retry-After: 60`.
+A client quota `429` carries `Retry-After` with the seconds until that client's
+quota window resets (1.2); other gateway `429` and application `503` responses
+carry a conservative `Retry-After: 60`. An authority operation's response
+carries the authority's own `Retry-After` (whole seconds, at most a day) and its
+request ID as `x-upstream-request-id` when the authority sent them, including
+on the `502` that replaces an authority server error (1.2).
 
 `GET /health` is liveness; `GET /ready` returns `503` when any configured network's
 CRL expires. Stale networks deny verification immediately even before a load

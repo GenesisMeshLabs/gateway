@@ -93,6 +93,7 @@ fn route_label(path: &str) -> &'static str {
         "/openapi.json" => "/openapi.json",
         "/assets/app.js" => "/assets/app.js",
         "/assets/signing.js" => "/assets/signing.js",
+        "/assets/errors.js" => "/assets/errors.js",
         "/assets/mesh.js" => "/assets/mesh.js",
         "/assets/tour.js" => "/assets/tour.js",
         "/assets/style.css" => "/assets/style.css",

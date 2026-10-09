@@ -430,6 +430,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/",
         "/api",
         "/assets/app.js",
+        "/assets/errors.js",
         "/openapi.json",
         "/no/such/path",
     ] {
