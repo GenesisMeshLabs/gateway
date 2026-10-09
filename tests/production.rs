@@ -530,6 +530,27 @@ async fn quota_is_shared_across_requests_and_metrics_require_scope() {
         .0,
         StatusCode::TOO_MANY_REQUESTS
     );
+    // Retry-After is when the client's quota window resets, not a fixed minute.
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/verify")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"certificate":cert}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    let wait: u64 = refused.headers()["retry-after"]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!((1..=60).contains(&wait), "{wait}");
     let (mut cfg, _, _) = fixture();
     cfg.security.as_mut().unwrap().clients[0].metrics = true;
     assert_eq!(
@@ -1146,6 +1167,69 @@ async fn authority_errors_on_new_routes_are_forwarded_with_their_code() {
     let body: Value =
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(body["error"]["code"], "resource_not_found");
+    task.abort();
+}
+
+#[tokio::test]
+async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
+    let (origin, task) =
+        mock_authority(Router::new().fallback(|uri: axum::http::Uri| async move {
+            let (status, retry, id) = match uri.path() {
+                "/admin/evidence/status" => (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "17",
+                    "1f0c2a5e-9d3b-4c1a-8f2e-6b7a9c0d1e2f",
+                ),
+                "/admin/evidence/verify" => (StatusCode::SERVICE_UNAVAILABLE, "30", "upstream-503"),
+                _ => (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Wed, 21 Oct 2026 07:28:00 GMT",
+                    "has spaces in it",
+                ),
+            };
+            (
+                status,
+                [("retry-after", retry), ("x-request-id", id)],
+                axum::Json(
+                    json!({"error": {"code": "rate_limit_exceeded", "message": "slow down"}}),
+                ),
+            )
+        }))
+        .await;
+    let app = router(evidence_fixture(&origin));
+    let limited = signed_get(
+        &app,
+        "/v1/networks/public-agency/services/evidence_store-status",
+    )
+    .await;
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.headers()["retry-after"], "17");
+    assert_eq!(
+        limited.headers()["x-upstream-request-id"],
+        "1f0c2a5e-9d3b-4c1a-8f2e-6b7a9c0d1e2f"
+    );
+    assert_ne!(
+        limited.headers()["x-request-id"],
+        limited.headers()["x-upstream-request-id"]
+    );
+    // A server error is not relayed, but its retry time and request ID are.
+    let failed = signed_get(
+        &app,
+        "/v1/networks/public-agency/services/evidence_store-verify",
+    )
+    .await;
+    assert_eq!(failed.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(failed.headers()["retry-after"], "30");
+    assert_eq!(failed.headers()["x-upstream-request-id"], "upstream-503");
+    // Values the gateway cannot vouch for are dropped.
+    let odd = signed_get(
+        &app,
+        "/v1/networks/public-agency/services/evidence_store-list-executor-keys",
+    )
+    .await;
+    assert_eq!(odd.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(!odd.headers().contains_key("retry-after"));
+    assert!(!odd.headers().contains_key("x-upstream-request-id"));
     task.abort();
 }
 
