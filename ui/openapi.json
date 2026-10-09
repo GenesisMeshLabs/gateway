@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Genesis Mesh Trust Gateway",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Operator-controlled Genesis Mesh trust verification. HTTP 200 is not a trust grant; inspect trusted in each decision."
   },
   "servers": [
