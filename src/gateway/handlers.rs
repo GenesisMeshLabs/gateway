@@ -94,11 +94,13 @@ pub(super) async fn auth(
         } else {
             super::runtime::admit(&state.quotas[i], policy.clients[i].requests_per_minute)
         };
-        if !admitted {
-            return Err(ApiError(
+        if let Err(wait) = admitted {
+            // Retry-After is when this client's quota window resets.
+            return Ok(ApiError(
                 StatusCode::TOO_MANY_REQUESTS,
                 "client quota exhausted".into(),
-            ));
+            )
+            .retry_after(wait));
         }
         tracing::info!(target: "audit", client_id = %policy.clients[i].id, policy_revision = %policy.revision, "client admitted");
     }

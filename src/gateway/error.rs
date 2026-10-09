@@ -28,6 +28,17 @@ impl ApiError {
             "missing or invalid bearer token".to_string(),
         )
     }
+
+    /// The response, with `Retry-After` set to `wait` rounded up to whole
+    /// seconds (at least one) instead of the default 60.
+    pub fn retry_after(self, wait: std::time::Duration) -> Response {
+        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+        let mut response = self.into_response();
+        response
+            .headers_mut()
+            .insert("retry-after", axum::http::HeaderValue::from(seconds.max(1)));
+        response
+    }
 }
 
 impl IntoResponse for ApiError {

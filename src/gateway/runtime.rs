@@ -30,19 +30,23 @@ impl Window {
     }
 }
 
-/// Serialize only requests sharing one client; reset and admission are indivisible.
-pub(super) fn admit(window: &Window, limit: u32) -> bool {
+/// The quota window.
+const QUOTA_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Serialize only requests sharing one client; reset and admission are
+/// indivisible. A refusal says how long until the window resets.
+pub(super) fn admit(window: &Window, limit: u32) -> Result<(), std::time::Duration> {
     let Ok(mut state) = window.0.lock() else {
-        return false;
+        return Err(QUOTA_WINDOW);
     };
-    if state.0.elapsed() >= std::time::Duration::from_secs(60) {
+    if state.0.elapsed() >= QUOTA_WINDOW {
         *state = (Instant::now(), 0);
     }
     if state.1 >= limit {
-        return false;
+        return Err(QUOTA_WINDOW.saturating_sub(state.0.elapsed()));
     }
     state.1 += 1;
-    true
+    Ok(())
 }
 
 #[derive(Default)]
@@ -328,7 +332,7 @@ mod tests {
                 for _ in 0..16 {
                     scope.spawn(|| {
                         for _ in 0..20 {
-                            if super::admit(&window, 50) {
+                            if super::admit(&window, 50).is_ok() {
                                 accepted.fetch_add(1, super::Ordering::Relaxed);
                             }
                         }
