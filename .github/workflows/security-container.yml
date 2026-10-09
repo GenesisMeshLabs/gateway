@@ -20,11 +20,11 @@ jobs:
           docker save gateway-security -o reports/image.tar
       - name: Scan source secrets and configuration
         run: |
-          docker run --rm -v "$PWD/source:/source:ro" -v "$PWD/reports:/reports" aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 fs --scanners vuln,secret,misconfig --format json --output /reports/source.json /source
+          docker run --rm -v "$PWD/source:/source:ro" -v "$PWD/reports:/reports" ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 fs --scanners vuln,secret,misconfig --format json --output /reports/source.json /source
           jq -e '[.Results[]? | .Vulnerabilities[]?] | length == 0' reports/source.json
       - name: Scan runtime and enforce high/critical gate
         run: |
-          docker run --rm -v "$PWD/reports:/reports" aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image --input /reports/image.tar --scanners vuln,secret --format json --output /reports/image.json
+          docker run --rm -v "$PWD/reports:/reports" ghcr.io/aquasecurity/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 image --input /reports/image.tar --scanners vuln,secret --format json --output /reports/image.json
           jq -e '[.Results[]? | .Vulnerabilities[]? | select(.Severity == "HIGH" or .Severity == "CRITICAL")] | length == 0' reports/image.json
           jq -e '[.Results[]? | .Secrets[]?] | length == 0' reports/image.json reports/source.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
