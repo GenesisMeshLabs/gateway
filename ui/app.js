@@ -135,7 +135,7 @@ async function send(){
     if(generation!==sessionGeneration)return;
     $('response').textContent=typeof data==='string'?data:JSON.stringify(data,null,2);
     $('response-meta').textContent=response.status+' | '+Math.round(performance.now()-start)+' ms';
-    $('request-state').textContent=response.ok?'Request completed':explainFailure(response.status,data,response.headers,Boolean(e.authority));
+    $('request-state').textContent=response.ok?'Request completed':explainFailure(response.status,data,response.headers);
     $('request-id').textContent=requestIds(response.headers);
     if(response.ok)lastResult=data;
     if(e.id==='networks'&&response.ok)renderNetworks(data);

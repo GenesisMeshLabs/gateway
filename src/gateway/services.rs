@@ -196,7 +196,8 @@ pub(super) async fn execute(
         ] {
             let value = headers
                 .get(name)
-                .filter(|h| !h.is_empty() && h.len() <= 512)
+                // The authority refuses longer values, and counts them as failures.
+                .filter(|h| !h.is_empty() && h.len() <= 256)
                 .ok_or_else(|| {
                     ApiError(
                         StatusCode::UNAUTHORIZED,
@@ -280,13 +281,23 @@ pub(super) async fn execute(
     for (name, value) in forwarded {
         response.headers_mut().insert(name, value);
     }
+    // A relayed 429 or 503 always says when to retry, as the gateway's own do.
+    if matches!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
+    ) && !response.headers().contains_key("retry-after")
+    {
+        response
+            .headers_mut()
+            .insert("retry-after", axum::http::HeaderValue::from_static("60"));
+    }
     Ok(response)
 }
 
 /// What the gateway passes on from the authority's response, when well
-/// formed: `Retry-After` in seconds (at most a day) and its request ID as
-/// `X-Upstream-Request-ID`, so a client can wait as long as the authority
-/// asks and quote the authority's ID when reporting a failure.
+/// formed: `Retry-After` in seconds (kept between 1 and 3600) and its request
+/// ID as `X-Upstream-Request-ID`, so a client can wait as long as the
+/// authority asks and quote the authority's ID when reporting a failure.
 fn upstream_headers(
     headers: &reqwest::header::HeaderMap,
 ) -> Vec<(&'static str, axum::http::HeaderValue)> {
@@ -300,9 +311,11 @@ fn upstream_headers(
     if let Some(seconds) = text("retry-after")
         .filter(|v| !v.is_empty() && v.len() <= 5 && v.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|v| v.parse::<u32>().ok())
-        .filter(|s| *s <= 86_400)
     {
-        out.push(("retry-after", axum::http::HeaderValue::from(seconds)));
+        out.push((
+            "retry-after",
+            axum::http::HeaderValue::from(seconds.clamp(1, 3600)),
+        ));
     }
     if let Some(id) = text("x-request-id").filter(|v| {
         !v.is_empty()

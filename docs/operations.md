@@ -104,9 +104,11 @@ text or empty bodies; application errors have `error` and `code` fields.
 A client quota `429` carries `Retry-After` with the seconds until that client's
 quota window resets (1.2); other gateway `429` and application `503` responses
 carry a conservative `Retry-After: 60`. An authority operation's response
-carries the authority's own `Retry-After` (whole seconds, at most a day) and its
-request ID as `x-upstream-request-id` when the authority sent them, including
-on the `502` that replaces an authority server error (1.2).
+carries the authority's own `Retry-After` (whole seconds, kept between 1 and
+3600; `60` on a relayed `429` or `503` without one) and its request ID as
+`x-upstream-request-id` when the authority sent them, including on the `502`
+that replaces an authority server error (1.2). Operator headers longer than the
+authority's 256 characters are refused at the gateway.
 
 `GET /health` is liveness; `GET /ready` returns `503` when any configured network's
 CRL expires. Stale networks deny verification immediately even before a load

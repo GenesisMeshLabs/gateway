@@ -46,8 +46,9 @@ impl DistributedQuota {
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             let mut connection = self.connection().await?;
             let key = quota_key(&self.namespace, client);
-            // Returns -1 when admitted, else the allowance's remaining milliseconds.
-            let script = redis::Script::new("local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n>=tonumber(ARGV[1]) then return redis.call('PTTL',KEYS[1]) end; n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],60000) end; return -1");
+            // Returns ADMITTED, else the allowance's remaining milliseconds. A
+            // full allowance that lost its expiry gets the whole window again.
+            let script = redis::Script::new("local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n>=tonumber(ARGV[1]) then local t=redis.call('PTTL',KEYS[1]); if t<0 then redis.call('PEXPIRE',KEYS[1],60000); t=60000 end; return t end; n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],60000) end; return -100");
             let remaining: i64 = script.key(key).arg(limit).invoke_async(&mut connection).await.map_err(|_| ())?;
             Ok::<_, ()>(refusal(remaining))
         }).await.map_err(|_| QuotaUnavailable)?.map_err(|_| QuotaUnavailable)
@@ -67,13 +68,16 @@ impl DistributedQuota {
     }
 }
 
-/// The script's answer: `-1` admits; otherwise the allowance's remaining
-/// milliseconds (a key without an expiry, `PTTL` -1 or -2 aside, waits the
-/// whole window).
+/// The script's answer for an admitted request: no `PTTL` is negative but
+/// -1 and -2, so it cannot be mistaken for a remaining time.
+const ADMITTED: i64 = -100;
+
+/// The script's answer: [`ADMITTED`], or the allowance's remaining
+/// milliseconds (anything else waits the whole window).
 fn refusal(remaining: i64) -> Result<(), std::time::Duration> {
     match remaining {
-        -1 => Ok(()),
-        ms if ms > 0 => Err(std::time::Duration::from_millis(ms.min(60_000) as u64)),
+        ADMITTED => Ok(()),
+        ms if ms >= 0 => Err(std::time::Duration::from_millis(ms.clamp(1, 60_000) as u64)),
         _ => Err(std::time::Duration::from_secs(60)),
     }
 }
@@ -98,10 +102,12 @@ mod tests {
     #[test]
     fn a_refusal_carries_the_remaining_window() {
         use std::time::Duration;
-        assert_eq!(refusal(-1), Ok(()));
+        assert_eq!(refusal(ADMITTED), Ok(()));
         assert_eq!(refusal(12_345), Err(Duration::from_millis(12_345)));
+        // PTTL's "no expiry" and "no key" never admit.
+        assert_eq!(refusal(-1), Err(Duration::from_secs(60)));
         assert_eq!(refusal(-2), Err(Duration::from_secs(60)));
-        assert_eq!(refusal(0), Err(Duration::from_secs(60)));
+        assert_eq!(refusal(0), Err(Duration::from_millis(1)));
         assert_eq!(refusal(90_000), Err(Duration::from_secs(60)));
     }
     #[test]

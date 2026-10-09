@@ -1222,14 +1222,14 @@ async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     assert_eq!(failed.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(failed.headers()["retry-after"], "30");
     assert_eq!(failed.headers()["x-upstream-request-id"], "upstream-503");
-    // Values the gateway cannot vouch for are dropped.
+    // Values the gateway cannot vouch for are dropped; a relayed 429 still says when to retry.
     let odd = signed_get(
         &app,
         "/v1/networks/public-agency/services/evidence_store-list-executor-keys",
     )
     .await;
     assert_eq!(odd.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert!(!odd.headers().contains_key("retry-after"));
+    assert_eq!(odd.headers()["retry-after"], "60");
     assert!(!odd.headers().contains_key("x-upstream-request-id"));
     task.abort();
 }
