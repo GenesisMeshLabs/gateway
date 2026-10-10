@@ -196,7 +196,8 @@ pub(super) async fn execute(
         ] {
             let value = headers
                 .get(name)
-                .filter(|h| !h.is_empty() && h.len() <= 512)
+                // The authority refuses longer values, and counts them as failures.
+                .filter(|h| !h.is_empty() && h.len() <= 256)
                 .ok_or_else(|| {
                     ApiError(
                         StatusCode::UNAUTHORIZED,
@@ -211,66 +212,120 @@ pub(super) async fn execute(
         .send()
         .await
         .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "authority unavailable".into()))?;
-    let status = upstream.status();
-    if status.is_redirection() || status.is_server_error() {
-        return Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            "authority request failed".into(),
-        ));
-    }
-    let limit = op.max_response_bytes.unwrap_or(MAX_RESPONSE);
-    if upstream.content_length().is_some_and(|n| n > limit as u64) {
-        return Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            "authority response too large".into(),
-        ));
-    }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = upstream
-        .chunk()
-        .await
-        .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "authority response failed".into()))?
-    {
-        if bytes.len() + chunk.len() > limit {
+    let forwarded = upstream_headers(upstream.headers());
+    let relayed = async {
+        let status = upstream.status();
+        if status.is_redirection() || status.is_server_error() {
+            return Err(ApiError(
+                StatusCode::BAD_GATEWAY,
+                "authority request failed".into(),
+            ));
+        }
+        let limit = op.max_response_bytes.unwrap_or(MAX_RESPONSE);
+        if upstream.content_length().is_some_and(|n| n > limit as u64) {
             return Err(ApiError(
                 StatusCode::BAD_GATEWAY,
                 "authority response too large".into(),
             ));
         }
-        bytes.extend_from_slice(&chunk);
-    }
-    if status.is_success() && op.response.as_deref() == Some("ndjson") {
-        let text = String::from_utf8(bytes).map_err(|_| {
+        let mut bytes = Vec::new();
+        while let Some(chunk) = upstream
+            .chunk()
+            .await
+            .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "authority response failed".into()))?
+        {
+            if bytes.len() + chunk.len() > limit {
+                return Err(ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    "authority response too large".into(),
+                ));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if status.is_success() && op.response.as_deref() == Some("ndjson") {
+            let text = String::from_utf8(bytes).map_err(|_| {
+                ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    "authority returned invalid text".into(),
+                )
+            })?;
+            // Every line must be a JSON object: the gateway forwards records, not markup.
+            if !text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
+            {
+                return Err(ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    "authority returned invalid JSON Lines".into(),
+                ));
+            }
+            tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
+            return Ok((
+                status,
+                [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
+                text,
+            )
+                .into_response());
+        }
+        let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
             ApiError(
                 StatusCode::BAD_GATEWAY,
-                "authority returned invalid text".into(),
+                "authority returned invalid JSON".into(),
             )
         })?;
-        // Every line must be a JSON object: the gateway forwards records, not markup.
-        if !text
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
-        {
-            return Err(ApiError(
-                StatusCode::BAD_GATEWAY,
-                "authority returned invalid JSON Lines".into(),
-            ));
-        }
         tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
-        return Ok((
-            status,
-            [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
-            text,
-        )
-            .into_response());
+        Ok((status, Json(payload)).into_response())
+    };
+    let mut response = relayed.await.unwrap_or_else(IntoResponse::into_response);
+    for (name, value) in forwarded {
+        response.headers_mut().insert(name, value);
     }
-    let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
-        ApiError(
-            StatusCode::BAD_GATEWAY,
-            "authority returned invalid JSON".into(),
-        )
-    })?;
-    tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
-    Ok((status, Json(payload)).into_response())
+    // A relayed 429 or 503 always says when to retry, as the gateway's own do.
+    if matches!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
+    ) && !response.headers().contains_key("retry-after")
+    {
+        response
+            .headers_mut()
+            .insert("retry-after", axum::http::HeaderValue::from_static("60"));
+    }
+    Ok(response)
+}
+
+/// What the gateway passes on from the authority's response, when well
+/// formed: `Retry-After` in seconds (kept between 1 and 3600) and its request
+/// ID as `X-Upstream-Request-ID`, so a client can wait as long as the
+/// authority asks and quote the authority's ID when reporting a failure.
+fn upstream_headers(
+    headers: &reqwest::header::HeaderMap,
+) -> Vec<(&'static str, axum::http::HeaderValue)> {
+    let mut out = Vec::new();
+    let text = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+    };
+    if let Some(seconds) = text("retry-after")
+        .filter(|v| !v.is_empty() && v.len() <= 5 && v.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|v| v.parse::<u32>().ok())
+    {
+        out.push((
+            "retry-after",
+            axum::http::HeaderValue::from(seconds.clamp(1, 3600)),
+        ));
+    }
+    if let Some(id) = text("x-request-id").filter(|v| {
+        !v.is_empty()
+            && v.len() <= 128
+            && v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
+    }) {
+        if let Ok(value) = axum::http::HeaderValue::from_str(id) {
+            out.push(("x-upstream-request-id", value));
+        }
+    }
+    out
 }

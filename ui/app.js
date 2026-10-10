@@ -1,6 +1,7 @@
 import './mesh.js';
 import './tour.js';
 import {adminRequestFor, operatorHeaders} from './signing.js';
+import {explainFailure, requestIds} from './errors.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -70,7 +71,7 @@ async function connect(){
   const generation=sessionGeneration;
   const {response,data}=await request('/v1/networks',{headers:{Authorization:'Bearer '+token}});
   if(generation!==sessionGeneration||token!==$('token').value.trim())throw new Error('Credentials changed. Connect again.');
-  if(!response.ok)throw new Error((typeof data.error==='string'?data.error:data.error?.message)||'Connection rejected ('+response.status+')');
+  if(!response.ok)throw new Error(explainFailure(response.status,data,response.headers));
   session=data;connectedToken=token;
   $('network-select').replaceChildren(...data.networks.map(n=>new Option(n.name+(n.services_configured?'':' (services unavailable)'),n.name)));
   for(const id of ['federation-local','federation-peer'])$(id).replaceChildren(...data.networks.filter(n=>n.services_configured).map(n=>new Option(n.name,n.name)));
@@ -134,8 +135,8 @@ async function send(){
     if(generation!==sessionGeneration)return;
     $('response').textContent=typeof data==='string'?data:JSON.stringify(data,null,2);
     $('response-meta').textContent=response.status+' | '+Math.round(performance.now()-start)+' ms';
-    $('request-state').textContent=response.ok?'Request completed':'Request rejected ('+response.status+')';
-    $('request-id').textContent='Request ID: '+(response.headers.get('x-request-id')||'unavailable');
+    $('request-state').textContent=response.ok?'Request completed':explainFailure(response.status,data,response.headers);
+    $('request-id').textContent=requestIds(response.headers);
     if(response.ok)lastResult=data;
     if(e.id==='networks'&&response.ok)renderNetworks(data);
   }catch(error){if(generation===sessionGeneration)$('request-state').textContent=error.message||'Request could not be completed.';}

@@ -1104,6 +1104,30 @@
     "body": {}
   },
   {
+    "id": "evidence_store-list-anchors",
+    "group": "evidence_store",
+    "name": "List anchors",
+    "description": "Signed store anchors in order, for auditors to keep outside the NA.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/anchors",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-create-anchor",
+    "group": "evidence_store",
+    "name": "Create anchor",
+    "description": "Sign the store's current head now (idempotent while it is unchanged).",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/anchors",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {}
+  },
+  {
     "id": "evidence_store-apply-retention",
     "group": "evidence_store",
     "name": "Apply retention",

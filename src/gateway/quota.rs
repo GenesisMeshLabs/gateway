@@ -36,14 +36,21 @@ impl DistributedQuota {
         }
         Ok(guard.as_ref().ok_or(())?.clone())
     }
-    /// Same client and namespace share a sixty-second allowance across replicas.
-    pub async fn admit(&self, client: &str, limit: u32) -> Result<bool, QuotaUnavailable> {
+    /// Same client and namespace share a sixty-second allowance across
+    /// replicas. A refusal says how long until the allowance resets.
+    pub async fn admit(
+        &self,
+        client: &str,
+        limit: u32,
+    ) -> Result<Result<(), std::time::Duration>, QuotaUnavailable> {
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             let mut connection = self.connection().await?;
             let key = quota_key(&self.namespace, client);
-            let script = redis::Script::new("local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n>=tonumber(ARGV[1]) then return 0 end; n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],60000) end; return 1");
-            let allowed: i32 = script.key(key).arg(limit).invoke_async(&mut connection).await.map_err(|_| ())?;
-            Ok::<bool, ()>(allowed == 1)
+            // Returns ADMITTED, else the allowance's remaining milliseconds. A
+            // full allowance that lost its expiry gets the whole window again.
+            let script = redis::Script::new("local n=tonumber(redis.call('GET',KEYS[1]) or '0'); if n>=tonumber(ARGV[1]) then local t=redis.call('PTTL',KEYS[1]); if t<0 then redis.call('PEXPIRE',KEYS[1],60000); t=60000 end; return t end; n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],60000) end; return -100");
+            let remaining: i64 = script.key(key).arg(limit).invoke_async(&mut connection).await.map_err(|_| ())?;
+            Ok::<_, ()>(refusal(remaining))
         }).await.map_err(|_| QuotaUnavailable)?.map_err(|_| QuotaUnavailable)
     }
     /// Health probe for fail-closed readiness.
@@ -58,6 +65,20 @@ impl DistributedQuota {
         })
         .await
         .is_ok_and(|result| result == Ok(true))
+    }
+}
+
+/// The script's answer for an admitted request: no `PTTL` is negative but
+/// -1 and -2, so it cannot be mistaken for a remaining time.
+const ADMITTED: i64 = -100;
+
+/// The script's answer: [`ADMITTED`], or the allowance's remaining
+/// milliseconds (anything else waits the whole window).
+fn refusal(remaining: i64) -> Result<(), std::time::Duration> {
+    match remaining {
+        ADMITTED => Ok(()),
+        ms if ms >= 0 => Err(std::time::Duration::from_millis(ms.clamp(1, 60_000) as u64)),
+        _ => Err(std::time::Duration::from_secs(60)),
     }
 }
 
@@ -78,6 +99,17 @@ fn quota_key(namespace: &str, client: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_refusal_carries_the_remaining_window() {
+        use std::time::Duration;
+        assert_eq!(refusal(ADMITTED), Ok(()));
+        assert_eq!(refusal(12_345), Err(Duration::from_millis(12_345)));
+        // PTTL's "no expiry" and "no key" never admit.
+        assert_eq!(refusal(-1), Err(Duration::from_secs(60)));
+        assert_eq!(refusal(-2), Err(Duration::from_secs(60)));
+        assert_eq!(refusal(0), Err(Duration::from_millis(1)));
+        assert_eq!(refusal(90_000), Err(Duration::from_secs(60)));
+    }
     #[test]
     fn quota_key_format_is_stable_across_versions() {
         assert_eq!(
@@ -103,7 +135,7 @@ mod tests {
         let mut tasks = tokio::task::JoinSet::new();
         for i in 0..40 {
             let replica = if i % 2 == 0 { a.clone() } else { b.clone() };
-            tasks.spawn(async move { replica.admit("shared-client", 7).await.unwrap() });
+            tasks.spawn(async move { replica.admit("shared-client", 7).await.unwrap().is_ok() });
         }
         let mut admitted = 0;
         while let Some(result) = tasks.join_next().await {
@@ -112,7 +144,9 @@ mod tests {
             }
         }
         assert_eq!(admitted, 7);
-        assert!(b.admit("another-client", 7).await.unwrap());
+        assert!(b.admit("another-client", 7).await.unwrap().is_ok());
+        let wait = a.admit("shared-client", 7).await.unwrap().unwrap_err();
+        assert!(wait > std::time::Duration::ZERO && wait <= std::time::Duration::from_secs(60));
     }
     #[tokio::test]
     async fn unavailable_backend_does_not_issue_local_allowance() {
