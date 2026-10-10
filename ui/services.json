@@ -1178,6 +1178,124 @@
     "body": null
   },
   {
+    "id": "out_of_band-submit-observation",
+    "group": "out_of_band",
+    "name": "Submit observation",
+    "description": "Admit one signed observation (judged at admission unless that is turned off).",
+    "method": "POST",
+    "upstream_path": "/evidence/observations",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-submit-observations",
+    "group": "out_of_band",
+    "name": "Submit observations",
+    "description": "Admit up to 100 observations in order of their change times; one result each.",
+    "method": "POST",
+    "upstream_path": "/evidence/observations/batch",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-submit-break-glass",
+    "group": "out_of_band",
+    "name": "Submit break glass",
+    "description": "Admit one signed break-glass record (judged at admission unless that is turned off).",
+    "method": "POST",
+    "upstream_path": "/evidence/break-glass",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-judge-observation",
+    "group": "out_of_band",
+    "name": "Judge observation",
+    "description": "Judge an observation once; returns the existing judgement when it is already judged.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/observations/{observation_id}/judge",
+    "admin": true,
+    "parameters": [
+      "observation_id"
+    ],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-judge-break-glass",
+    "group": "out_of_band",
+    "name": "Judge break glass",
+    "description": "Judge a break-glass record once; returns the existing judgement when it is already judged.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/break-glass/{break_glass_id}/judge",
+    "admin": true,
+    "parameters": [
+      "break_glass_id"
+    ],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-resource-changes",
+    "group": "out_of_band",
+    "name": "Resource changes",
+    "description": "Every change to a resource: how it was governed and its state.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/changes/{resource_id}",
+    "admin": true,
+    "parameters": [
+      "resource_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "out_of_band-operator-holders",
+    "group": "out_of_band",
+    "name": "Operator holders",
+    "description": "Operator key holders as the evidence store records them.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/operator-holders",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "out_of_band-propose-holder",
+    "group": "out_of_band",
+    "name": "Propose holder",
+    "description": "Propose a new holder for an operator key; another holder approves it.",
+    "method": "POST",
+    "upstream_path": "/admin/operator-keys/{key_id}/holder",
+    "admin": true,
+    "parameters": [
+      "key_id"
+    ],
+    "query": [],
+    "body": {}
+  },
+  {
+    "id": "out_of_band-approve-holder",
+    "group": "out_of_band",
+    "name": "Approve holder",
+    "description": "Approve a holder change with a privileged key of a different holder.",
+    "method": "POST",
+    "upstream_path": "/admin/operator-keys/holder-changes/{proposal_id}/approve",
+    "admin": true,
+    "parameters": [
+      "proposal_id"
+    ],
+    "query": [],
+    "body": {}
+  },
+  {
     "id": "public-dashboard-json",
     "group": "network",
     "name": "Dashboard json",
