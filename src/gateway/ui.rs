@@ -22,6 +22,12 @@ pub(super) async fn signing_script() -> impl IntoResponse {
         include_str!("../../ui/signing.js"),
     )
 }
+pub(super) async fn errors_script() -> impl IntoResponse {
+    (
+        [("content-type", "text/javascript; charset=utf-8")],
+        include_str!("../../ui/errors.js"),
+    )
+}
 pub(super) async fn tour_script() -> impl IntoResponse {
     (
         [("content-type", "text/javascript; charset=utf-8")],
