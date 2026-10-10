@@ -66,7 +66,14 @@ jobs:
           fi
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: {python-version: "3.14"}
+      # BuildKit and the Dockerfile's base images (pinned by digest) come through
+      # mirrors, falling back to Docker Hub: its outages failed every image job.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
       # Each architecture builds and runs natively on its own runner.
       - name: Build both images
         run: |
@@ -119,7 +126,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:8-alpine
+        # Docker Hub's official image, from Google's Docker Hub mirror (Docker Hub outages failed this job).
+        image: mirror.gcr.io/library/redis:8-alpine
         ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
