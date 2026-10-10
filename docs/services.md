@@ -1,6 +1,6 @@
 # Authority services
 
-The console exposes 82 explicitly allowed authority operations in addition to
+The console exposes 91 explicitly allowed authority operations in addition to
 eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
@@ -11,6 +11,7 @@ describe each HTTP method, resource parameter, query field and request example.
 | Boundary | Decide and verify |
 | Boundary policy (`boundary_policy`) | Validate, publish, list, activate, deactivate, history and verify policies; policy-aware evaluation |
 | Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now) |
+| Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table), operator key holders and holder changes (Genesis Mesh 1.3.0) |
 | Disclosure | Commitment, membership proof, nullifier and verification |
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
 | Data usage | Create/read license policy, issue intent and verify |

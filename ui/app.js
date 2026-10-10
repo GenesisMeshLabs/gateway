@@ -63,7 +63,7 @@ function resetSession(){
   $('network-select').replaceChildren(new Option('Connect to load networks',''));
   $('network-data').replaceChildren(node('p','Enter a service token and select Load networks.'));
   $('network-state').textContent='Enter your token here, then select Load networks. The public mesh above needs no token.';
-  $('response').textContent='Session data cleared.';$('request-id').textContent='';
+  $('response').textContent='Session data cleared.';$('request-id').textContent='';$('response-table').hidden=true;
   $('operator-seed').value='';$('signed-headers').value='';renderEndpoints();
 }
 async function connect(){
@@ -96,8 +96,30 @@ async function adminAudience(network,token){
   audiences.set(network,key);
   return key;
 }
+const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined']);
+// A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state.
+function renderChanges(data){
+  const box=$('response-table');box.replaceChildren();box.hidden=true;
+  const changes=Array.isArray(data&&data.changes)?data.changes:[];
+  if(!changes.length)return;
+  const table=node('table',undefined,'changes-table'), head=table.createTHead().insertRow(), body=table.createTBody();
+  for(const title of ['#','Kind','Action','When','Governed by','State','Details'])head.append(node('th',title));
+  for(const c of changes){
+    const details=[c.flagged_for_review?'flagged for review':'',c.justification?'justification: '+c.justification:'',
+      c.rejection_code?'refused: '+c.rejection_code:'',c.observed_by?'observed by '+c.observed_by:'',
+      c.possible_match_evidence_id?'possible match: '+c.possible_match_evidence_id:''].filter(Boolean).join('; ');
+    const row=body.insertRow();
+    for(const text of [c.store_sequence,c.kind,c.action,c.at,c.governed_by])row.append(node('td',text==null?'':String(text)));
+    row.append(node('td',String(c.state||''),CHANGE_STATES.has(c.state)?'state '+c.state:'state'));
+    row.append(node('td',details));
+  }
+  box.append(table);
+  if(data.truncated)box.append(node('p','The resource has more changes than one response holds.','field-note'));
+  box.hidden=false;
+}
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
+  $('response-table').hidden=true;
   try{
     const token=$('token').value.trim();if(!e.public&&!token)throw new Error('Enter a service token for this endpoint.');
     if(e.authority&&connectedToken!==token)await connect();
@@ -139,6 +161,7 @@ async function send(){
     $('request-id').textContent=requestIds(response.headers);
     if(response.ok)lastResult=data;
     if(e.id==='networks'&&response.ok)renderNetworks(data);
+    if(e.id==='out_of_band-resource-changes'&&response.ok)renderChanges(data);
   }catch(error){if(generation===sessionGeneration)$('request-state').textContent=error.message||'Request could not be completed.';}
   finally{busy=false;$('send').disabled=false;$('network-select').disabled=false;}
 }
