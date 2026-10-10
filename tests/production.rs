@@ -1181,7 +1181,9 @@ async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
                     "17",
                     "1f0c2a5e-9d3b-4c1a-8f2e-6b7a9c0d1e2f",
                 ),
-                "/admin/evidence/verify" => (StatusCode::SERVICE_UNAVAILABLE, "30", "upstream-503"),
+                "/admin/evidence/verify" => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "30", "upstream-500")
+                }
                 _ => (
                     StatusCode::TOO_MANY_REQUESTS,
                     "Wed, 21 Oct 2026 07:28:00 GMT",
@@ -1221,7 +1223,7 @@ async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     .await;
     assert_eq!(failed.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(failed.headers()["retry-after"], "30");
-    assert_eq!(failed.headers()["x-upstream-request-id"], "upstream-503");
+    assert_eq!(failed.headers()["x-upstream-request-id"], "upstream-500");
     // Values the gateway cannot vouch for are dropped; a relayed 429 still says when to retry.
     let odd = signed_get(
         &app,
@@ -1232,6 +1234,79 @@ async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     assert_eq!(odd.headers()["retry-after"], "60");
     assert!(!odd.headers().contains_key("x-upstream-request-id"));
     task.abort();
+}
+
+#[tokio::test]
+async fn an_authority_503_keeps_its_code_and_other_server_errors_do_not() {
+    // SDKs never break the glass on `evidence_store_unavailable`; a 502 hid
+    // the code (1.3.1).
+    let unavailable = json!({"error": {
+        "code": "evidence_store_unavailable",
+        "message": "The evaluation could not be stored",
+        "request_id": "upstream-1",
+    }});
+    let private = "private failure detail";
+    for (status, body, expected) in [
+        (
+            503,
+            unavailable.to_string(),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (
+            503,
+            format!("<html>{private}</html>"),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (503, json!([private]).to_string(), StatusCode::BAD_GATEWAY),
+        (
+            503,
+            json!({"error": {"code": "x", "message": "y".repeat(16 * 1024)}}).to_string(),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            500,
+            json!({"error": {"code": "internal_error", "message": private}}).to_string(),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (504, unavailable.to_string(), StatusCode::BAD_GATEWAY),
+    ] {
+        let reply = body.clone();
+        let (origin, task) = mock_authority(Router::new().fallback(move || {
+            let reply = reply.clone();
+            async move {
+                (
+                    StatusCode::from_u16(status).unwrap(),
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    reply,
+                )
+            }
+        }))
+        .await;
+        let app = router(evidence_fixture(&origin));
+        let response = signed_get(
+            &app,
+            "/v1/networks/public-agency/services/evidence_store-status",
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            expected,
+            "{status} {}",
+            &body[..40.min(body.len())]
+        );
+        // A relayed 503 still says when to retry.
+        let retry = response.headers().get("retry-after").cloned();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        if expected == StatusCode::SERVICE_UNAVAILABLE {
+            assert_eq!(retry.unwrap(), "60");
+            let relayed: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(relayed, unavailable);
+        } else {
+            assert!(!String::from_utf8_lossy(&bytes).contains(private));
+            assert!(!String::from_utf8_lossy(&bytes).contains("evidence_store_unavailable"));
+        }
+        task.abort();
+    }
 }
 
 const DEMO_TOKEN: &str = "public-demo-token-for-the-mesh-console-0001";
