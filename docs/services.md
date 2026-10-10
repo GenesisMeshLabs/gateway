@@ -114,6 +114,27 @@ and responses are limited to 2 MiB (the evidence export, forwarded as
 `limit`). Automatic retries are intentionally absent
 because mutations and consumed nonces cannot safely be replayed.
 
+The authority's answers are relayed with their status and JSON body, with
+these exceptions. A redirect, and a server error other than `503`, becomes the
+gateway's `502`, and its body is not read. A `503` is relayed with its JSON
+object (at most 16 KiB) so its code reaches the client: an SDK must tell an
+authority's `evidence_store_unavailable`, on which it never breaks the glass,
+from a gateway or network failure (1.3.1; before, it was a `502`). A `503`
+whose body is not a JSON object is a `502` as before.
+
+### Observation submission rate
+
+The authority limits observation and break-glass submissions per client
+address (`NA_RATE_LIMIT_OBSERVATIONS_PER_MINUTE`, 120 a minute by default),
+and counts each observation in a batch. Every request the gateway forwards
+comes from the gateway's own address, and the gateway does not forward client
+addresses. So all of its clients share one bucket: one observer's backlog can
+use up the minute for every other client of the same authority. Size
+`NA_RATE_LIMIT_OBSERVATIONS_PER_MINUTE` for everything sent through the
+gateway, or connect observers and controllers that submit many records
+directly to the authority. The SDKs halve their batches after a `429` and wait
+as long as its `Retry-After` asks.
+
 Resource identifiers are protocol text: `resource_id` may span path segments
 (`kv:vault/secret`) and `resource_id` and `vendor_id` may contain non-ASCII
 characters. Each segment is encoded once; empty and dot segments, `%`, `\\` and
