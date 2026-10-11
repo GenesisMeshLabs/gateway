@@ -30,6 +30,10 @@ struct Operation {
 /// Default limit on an authority response forwarded to a client.
 const MAX_RESPONSE: usize = 2 * 1024 * 1024;
 
+/// Limit on the body of an authority `503` relayed to a client: an error
+/// object, never a payload (1.3.1).
+const MAX_UNAVAILABLE_RESPONSE: usize = 16 * 1024;
+
 /// Path parameters that carry protocol identifiers rather than the
 /// gateway's ASCII resource names. `resource_id` may span segments
 /// (`kv:vault/secret`); both may contain non-ASCII text.
@@ -215,18 +219,32 @@ pub(super) async fn execute(
     let forwarded = upstream_headers(upstream.headers());
     let relayed = async {
         let status = upstream.status();
-        if status.is_redirection() || status.is_server_error() {
-            return Err(ApiError(
-                StatusCode::BAD_GATEWAY,
-                "authority request failed".into(),
-            ));
+        let failed = || ApiError(StatusCode::BAD_GATEWAY, "authority request failed".into());
+        // An authority 503 keeps its JSON object, so its code reaches the
+        // client: SDKs never break the glass on `evidence_store_unavailable`,
+        // which a 502 would hide (1.3.1). Other server errors and redirects
+        // are the gateway's 502, their bodies unread.
+        let unavailable = status == StatusCode::SERVICE_UNAVAILABLE;
+        if status.is_redirection() || (status.is_server_error() && !unavailable) {
+            return Err(failed());
         }
-        let limit = op.max_response_bytes.unwrap_or(MAX_RESPONSE);
+        let limit = if unavailable {
+            MAX_UNAVAILABLE_RESPONSE
+        } else {
+            op.max_response_bytes.unwrap_or(MAX_RESPONSE)
+        };
+        let too_large = || {
+            if unavailable {
+                failed()
+            } else {
+                ApiError(
+                    StatusCode::BAD_GATEWAY,
+                    "authority response too large".into(),
+                )
+            }
+        };
         if upstream.content_length().is_some_and(|n| n > limit as u64) {
-            return Err(ApiError(
-                StatusCode::BAD_GATEWAY,
-                "authority response too large".into(),
-            ));
+            return Err(too_large());
         }
         let mut bytes = Vec::new();
         while let Some(chunk) = upstream
@@ -235,12 +253,18 @@ pub(super) async fn execute(
             .map_err(|_| ApiError(StatusCode::BAD_GATEWAY, "authority response failed".into()))?
         {
             if bytes.len() + chunk.len() > limit {
-                return Err(ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    "authority response too large".into(),
-                ));
+                return Err(too_large());
             }
             bytes.extend_from_slice(&chunk);
+        }
+        if unavailable {
+            return match serde_json::from_slice::<Value>(&bytes) {
+                Ok(payload) if payload.is_object() => {
+                    tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation unavailable");
+                    Ok((status, Json(payload)).into_response())
+                }
+                _ => Err(failed()),
+            };
         }
         if status.is_success() && op.response.as_deref() == Some("ndjson") {
             let text = String::from_utf8(bytes).map_err(|_| {

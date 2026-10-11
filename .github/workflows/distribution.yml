@@ -31,8 +31,9 @@ jobs:
                 echo "::error::Tag $GITHUB_REF_NAME does not match version $version."
                 exit 1
               fi
-              if [ "$version" != "$core" ] && ! git ls-remote --exit-code --tags https://github.com/GenesisMeshLabs/genesismesh.git "refs/tags/v$version" > /dev/null; then
-                echo "::error::Release $version is not a Genesis Mesh core version (core is $core). Release the core first."
+              # The core release is tagged first, even when the core's main already names the version.
+              if ! git ls-remote --exit-code --tags https://github.com/GenesisMeshLabs/genesismesh.git "refs/tags/v$version" > /dev/null; then
+                echo "::error::The Genesis Mesh core has no tag v$version (core main is $core). Release the core first."
                 exit 1
               fi
             fi

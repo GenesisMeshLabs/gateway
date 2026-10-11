@@ -107,8 +107,13 @@ carry a conservative `Retry-After: 60`. An authority operation's response
 carries the authority's own `Retry-After` (whole seconds, kept between 1 and
 3600; `60` on a relayed `429` or `503` without one) and its request ID as
 `x-upstream-request-id` when the authority sent them, including on the `502`
-that replaces an authority server error (1.2). Operator headers longer than the
-authority's 256 characters are refused at the gateway.
+that replaces an authority server error (1.2). An authority `503` with a JSON
+object body is relayed as a `503` with that body, so its code (such as
+`evidence_store_unavailable`) reaches the client (1.3.1); other authority
+server errors stay `502`. Operator headers longer than the authority's 256
+characters are refused at the gateway. All clients' observation submissions
+reach the authority from the gateway's address and share its per-address rate
+limit; see [Authority services](services.md#observation-submission-rate).
 
 `GET /health` is liveness; `GET /ready` returns `503` when any configured network's
 CRL expires. Stale networks deny verification immediately even before a load
