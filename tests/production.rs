@@ -431,6 +431,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/api",
         "/assets/app.js",
         "/assets/errors.js",
+        "/assets/remediation.js",
         "/openapi.json",
         "/no/such/path",
     ] {
@@ -1337,6 +1338,33 @@ async fn remediation_operations_keep_scope_operator_headers_and_identifier_rules
     ] {
         let response = forwarded(&app, path, body, true).await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn the_console_serves_its_remediation_views_and_tour_step() {
+    let app = router(fixture().0);
+    for (path, content_type, marker) in [
+        (
+            "/assets/remediation.js",
+            "text/javascript",
+            "export function queueView",
+        ),
+        ("/assets/app.js", "text/javascript", "./remediation.js"),
+        ("/", "text/html", "id=\"run-after\""),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with(content_type));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
     }
 }
 
