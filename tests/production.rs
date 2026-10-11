@@ -1171,6 +1171,210 @@ async fn authority_errors_on_new_routes_are_forwarded_with_their_code() {
     task.abort();
 }
 
+/// A request through the gateway with the four operator headers (when
+/// `admin`) and a raw body (POST when given).
+async fn forwarded(
+    app: &Router,
+    path: &str,
+    body: Option<&'static str>,
+    admin: bool,
+) -> axum::response::Response {
+    let mut req = Request::builder()
+        .method(if body.is_some() { "POST" } else { "GET" })
+        .uri(format!("/v1/networks/public-agency/services/{path}"))
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .header("content-type", "application/json");
+    if admin {
+        req = req
+            .header("x-admin-key-id", "operator-test")
+            .header("x-admin-timestamp", "2026-10-11T00:00:00Z")
+            .header("x-admin-nonce", "unique-nonce")
+            .header("x-admin-signature", "signed-request");
+    }
+    app.clone()
+        .oneshot(req.body(Body::from(body.unwrap_or_default())).unwrap())
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn remediation_operations_reach_their_routes_as_evidence_store_operations() {
+    // (method, upstream path and query, body, operator headers present)
+    type Seen = (String, String, String, bool);
+    let seen = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<Seen>::new()));
+    let record = seen.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(
+        move |method: axum::http::Method,
+              uri: axum::http::Uri,
+              headers: axum::http::HeaderMap,
+              body: axum::body::Bytes| {
+            let record = record.clone();
+            async move {
+                assert!(!headers.contains_key("authorization"));
+                record.lock().await.push((
+                    method.to_string(),
+                    uri.to_string(),
+                    String::from_utf8(body.to_vec()).unwrap(),
+                    headers.contains_key("x-admin-signature"),
+                ));
+                axum::Json(json!({"state": "remediation_due"}))
+            }
+        },
+    ))
+    .await;
+    // A client scoped to the evidence store, as controllers and operators are.
+    let app = router(evidence_fixture(&origin));
+    for (path, body, admin, upstream) in [
+        (
+            "remediation-submit-remediation",
+            Some(r#"{"record": {"remediation_id": "m-1"}}"#),
+            false,
+            "/evidence/remediations",
+        ),
+        (
+            "remediation-due-queue?state=remediation_due&limit=50&after=2026-10-11T09%3A00%3A00.000000Z%7Cj-1",
+            None,
+            true,
+            "/admin/evidence/remediations?after=2026-10-11T09%3A00%3A00.000000Z%7Cj-1&limit=50&state=remediation_due",
+        ),
+        ("remediation-due-queue", None, true, "/admin/evidence/remediations"),
+        (
+            "remediation-get-remediation?subject_id=7f1c2a9e-judgement",
+            None,
+            true,
+            "/admin/evidence/remediations/7f1c2a9e-judgement",
+        ),
+        (
+            "remediation-record-notice?subject_id=j-1",
+            Some(r#"{"channel": "email"}"#),
+            true,
+            "/admin/evidence/remediations/j-1/notified",
+        ),
+        (
+            "remediation-request-review",
+            Some(r#"{"subject_kind": "judgement", "subject_id": "j-1", "justification": "why"}"#),
+            true,
+            "/admin/evidence/reviews",
+        ),
+        (
+            "remediation-get-review?review_id=r-1",
+            None,
+            true,
+            "/admin/evidence/reviews/r-1",
+        ),
+        (
+            "remediation-decide-review?review_id=r-1",
+            Some(r#"{"verdict": "waive_until", "waive_until": "2026-10-12T00:00:00Z"}"#),
+            true,
+            "/admin/evidence/reviews/r-1/decide",
+        ),
+    ] {
+        let response = forwarded(&app, path, body, admin).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let last = seen.lock().await.last().unwrap().clone();
+        let method = if body.is_some() { "POST" } else { "GET" };
+        // The signed body reaches the authority byte for byte: a review's
+        // approval embeds it and verifies offline.
+        assert_eq!(
+            last,
+            (
+                method.to_owned(),
+                upstream.to_owned(),
+                body.unwrap_or_default().to_owned(),
+                admin
+            ),
+            "{path}"
+        );
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn remediation_operations_keep_scope_operator_headers_and_identifier_rules() {
+    let app = router(evidence_fixture("http://127.0.0.1:9"));
+    // Every operator route needs the operator headers; the gateway's flag is
+    // not the authority's tier check (read, standard or privileged).
+    for (path, body) in [
+        ("remediation-due-queue?state=overdue", None),
+        ("remediation-get-remediation?subject_id=j-1", None),
+        ("remediation-record-notice?subject_id=j-1", Some("{}")),
+        ("remediation-request-review", Some("{}")),
+        ("remediation-get-review?review_id=r-1", None),
+        ("remediation-decide-review?review_id=r-1", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, false).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+    }
+    // Only state, limit and after reach the queue; identifiers are one ASCII segment.
+    for (path, body) in [
+        ("remediation-due-queue?cursor=x", None),
+        (
+            "remediation-get-remediation?subject_id=j-1&state=overdue",
+            None,
+        ),
+        ("remediation-get-remediation?subject_id=..", None),
+        ("remediation-get-remediation?subject_id=j%2F..%2F1", None),
+        ("remediation-get-review?review_id=r%25", None),
+        ("remediation-decide-review?review_id=r%C3%AB", Some("{}")),
+        ("remediation-submit-remediation", Some("[]")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+    }
+    // A client without the evidence store reaches none of them.
+    let mut cfg = evidence_fixture("http://127.0.0.1:9");
+    cfg.security.as_mut().unwrap().clients[0].service_groups =
+        ["network".into(), "out_of_band".into()].into();
+    let app = router(cfg);
+    for (path, body) in [
+        ("remediation-submit-remediation", Some("{}")),
+        ("remediation-due-queue", None),
+        ("remediation-get-remediation?subject_id=j-1", None),
+        ("remediation-record-notice?subject_id=j-1", Some("{}")),
+        ("remediation-request-review", Some("{}")),
+        ("remediation-get-review?review_id=r-1", None),
+        ("remediation-decide-review?review_id=r-1", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_full_due_queue_page_fits_and_a_review_keeps_the_default_limit() {
+    // A page of 500 states, each with its pending review, can pass 2 MiB.
+    let large = "{\"remediations\":[\"".to_owned() + &"x".repeat(3 * 1024 * 1024) + "\"]}";
+    let body = std::sync::Arc::new(large);
+    let served = body.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(move || {
+        let served = served.clone();
+        async move {
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                served.as_str().to_owned(),
+            )
+        }
+    }))
+    .await;
+    let app = router(evidence_fixture(&origin));
+    for (path, expected) in [
+        ("remediation-due-queue?state=overdue", StatusCode::OK),
+        ("remediation-get-remediation?subject_id=j-1", StatusCode::OK),
+        (
+            "remediation-get-review?review_id=r-1",
+            StatusCode::BAD_GATEWAY,
+        ),
+    ] {
+        let response = forwarded(&app, path, None, true).await;
+        assert_eq!(response.status(), expected, "{path}");
+        if expected == StatusCode::OK {
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(bytes.len(), body.len());
+        }
+    }
+    task.abort();
+}
+
 #[tokio::test]
 async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     let (origin, task) =
