@@ -1252,7 +1252,10 @@
     "parameters": [
       "resource_id"
     ],
-    "query": [],
+    "query": [
+      "after_sequence",
+      "limit"
+    ],
     "body": null,
     "max_response_bytes": 8388608
   },

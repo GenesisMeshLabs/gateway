@@ -31,7 +31,6 @@ SERVICE_QUERY = {
     "/admin/evidence": ["after_sequence", "attestation_id", "capability", "decision_id", "entry_kind",
                         "limit", "outcome", "resource_id", "since", "until", "vendor_id"],
     "/admin/evidence/export": ["limit", "since_sequence"],
-    "/admin/evidence/remediations": ["after", "limit", "state"],
 }
 # Responses that are not a JSON document, forwarded as text within their own limit.
 RESPONSE_FORMATS = {"/admin/evidence/export": {"response": "ndjson", "max_response_bytes": 8 * 1024 * 1024}}

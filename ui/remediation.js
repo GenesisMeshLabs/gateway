@@ -4,12 +4,14 @@
 // JSON that return tables of plain strings, so tools/test_ui_remediation.mjs
 // can check them without a browser; app.js renders them as text nodes.
 
-/** The states the queue lists by default, in the order the console shows them. */
-export const QUEUE_STATES=['remediation_due','overdue','review_pending','waived'];
-/** Every Stage 3 state (`?state=` accepts each). */
-export const STAGE3_STATES=[...QUEUE_STATES,'remediated','upheld','review_denied'];
-const TITLES={remediation_due:'Remediation due',overdue:'Overdue',review_pending:'Pending reviews',waived:'Waived',
-  remediated:'Remediated',upheld:'Upheld',review_denied:'Review denied'};
+/** The states a remediation state can hold. A pending review is a flag beside any of them. */
+export const STORED_STATES=['judged_allowed','matched','recorded','remediation_due','overdue','remediated','upheld','waived'];
+/** Values of the queue's `state` filter: a state, or `review_pending` (the flag, whatever the state). */
+export const QUEUE_FILTERS=[...STORED_STATES,'review_pending'];
+// The states the default queue lists, in the order the console shows them.
+const OPEN_STATES=['remediation_due','overdue','waived'];
+const TITLES={judged_allowed:'Judged allowed',matched:'Matched',recorded:'Recorded',remediation_due:'Remediation due',
+  overdue:'Overdue',remediated:'Remediated',upheld:'Upheld',waived:'Waived',review_pending:'Pending reviews'};
 
 const text=v=>v==null?'':String(v);
 const words=v=>text(v).replaceAll('_',' ');
@@ -30,27 +32,37 @@ export function plan(s){
 
 function subject(s){return [s.subject_kind,s.subject_id].filter(v=>v!=null&&v!=='').map(String).join(' ');}
 function notified(s){return s.notified_at?time(s.notified_at)+(s.notified_by?' by '+s.notified_by:''):'not yet';}
+function actor(s){return text(s.actor)+(s.actor_holder?' ('+s.actor_holder+')':'');}
 function requester(review){
   if(!review?.requested_by)return 'the authority';
   return review.requested_by+(review.requester_holder?' ('+review.requester_holder+')':'');
 }
+/** The review flag beside a state: pending (and why), or the latest decided review. */
+function review(s){
+  if(s.review_pending===true)return 'pending'+(s.review?.opened_for?': '+words(s.review.opened_for):'');
+  return s.review_id?'decided ('+s.review_id+')':'';
+}
 
-// Each state's columns: what an operator acts on for it.
+// Each open state's columns: what an operator acts on for it.
 const COLUMNS={
-  remediation_due:[['Subject',subject],['Due',s=>time(s.remediation_due_at)],['Plan',plan],['Actor',s=>text(s.actor)],
-    ['Resource',s=>text(s.resource_id)],['Notified',notified]],
+  remediation_due:[['Subject',subject],['Due',s=>time(s.remediation_due_at)],['Plan',plan],['Actor',actor],
+    ['Resource',s=>text(s.resource_id)],['Notified',notified],['Review',review]],
   overdue:[['Subject',subject],['Overdue since',s=>time(s.overdue_since)],['Due',s=>time(s.remediation_due_at)],['Plan',plan],
-    ['Actor',s=>text(s.actor)],['Resource',s=>text(s.resource_id)],['Notified',notified]],
-  review_pending:[['Subject',subject],['Opened for',s=>words(s.review?.opened_for)],['Requester',s=>requester(s.review)],
-    ['Justification',s=>text(s.review?.justification)],['Lifetime ends',s=>time(s.lifetime_ends_at)],['Actor',s=>text(s.actor)],
-    ['Resource',s=>text(s.resource_id)],['Review',s=>text(s.review?.review_id??s.review_id)]],
-  waived:[['Subject',subject],['Waived until',s=>time(s.waived_until)],['Then',plan],['Actor',s=>text(s.actor)],
-    ['Resource',s=>text(s.resource_id)],['Review',s=>text(s.review_id)]],
+    ['Actor',actor],['Resource',s=>text(s.resource_id)],['Notified',notified],['Review',review]],
+  waived:[['Subject',subject],['Waived until',s=>time(s.waived_until)],['Then',plan],['Actor',actor],
+    ['Resource',s=>text(s.resource_id)],['Review',review]],
 };
-const OTHER=[['Subject',subject],['State',s=>text(s.state)],['Plan',plan],['Actor',s=>text(s.actor)],['Resource',s=>text(s.resource_id)],
-  ['Remediation',s=>text(s.remediation_id)],['Review',s=>text(s.review_id)],['Updated',s=>time(s.updated_at)]];
+const OTHER=[['Subject',subject],['State',s=>text(s.state)],['Review',review],['Plan',plan],['Actor',actor],
+  ['Resource',s=>text(s.resource_id)],['Remediation',s=>text(s.remediation_id)],['Updated',s=>time(s.updated_at)]];
+const REVIEWS=[['Subject',subject],['State',s=>text(s.state)],['Opened for',s=>words(s.review?.opened_for)],['Requester',s=>requester(s.review)],
+  ['Justification',s=>text(s.review?.justification)],['Lifetime ends',s=>time(s.lifetime_ends_at)],['Actor',actor],
+  ['Resource',s=>text(s.resource_id)],['Review',s=>text(s.review?.review_id??s.review_id)]];
 
-/** One table per state for remediation states: `{state, caption, headers, rows}`. */
+function table(state,caption,columns,rows){
+  return {state,caption:caption+' ('+rows.length+')',headers:columns.map(c=>c[0]),rows:rows.map(r=>columns.map(c=>c[1](r)))};
+}
+
+/** One table per state, each item's review flag beside its state: `{state, caption, headers, rows}`. */
 export function stateTables(states){
   const groups=new Map();
   for(const s of states.filter(isObject)){
@@ -58,51 +70,75 @@ export function stateTables(states){
     if(!groups.has(key))groups.set(key,[]);
     groups.get(key).push(s);
   }
-  const order=[...QUEUE_STATES,'other'].filter(k=>groups.has(k));
-  return order.map(state=>{
-    const columns=COLUMNS[state]||OTHER, rows=groups.get(state);
+  return [...OPEN_STATES,'other'].filter(k=>groups.has(k)).map(state=>{
+    const rows=groups.get(state);
     const title=TITLES[state]||(new Set(rows.map(r=>r.state)).size===1?TITLES[rows[0].state]||words(rows[0].state):'Other states');
-    return {state,caption:title+' ('+rows.length+')',headers:columns.map(c=>c[0]),rows:rows.map(r=>columns.map(c=>c[1](r)))};
+    return table(state,title,COLUMNS[state]||OTHER,rows);
   });
 }
 
-/** The due queue (`GET /admin/evidence/remediations`): its tables and a note. */
+/** The items with a pending review, whatever their state, with the request. */
+export function reviewTable(states){
+  const rows=states.filter(s=>isObject(s)&&s.review_pending===true);
+  return rows.length?[table('review_pending',TITLES.review_pending,REVIEWS,rows)]:[];
+}
+
+/**
+ * The due queue (`GET /admin/evidence/remediations`): its tables and a note.
+ * `state=review_pending` filters on the flag, so it shows the reviews table
+ * only; the default queue (due, overdue, waived, and any item with a pending
+ * review) shows the state tables, then the pending reviews again with their requests.
+ */
 export function queueView(data){
-  const states=Array.isArray(data?.remediations)?data.remediations:[];
-  const scope=data?.state?(TITLES[data.state]||words(data.state)).toLowerCase():'the open states (due, overdue, pending review, waived)';
+  const states=Array.isArray(data?.remediations)?data.remediations.filter(isObject):[];
+  const scope=data?.state?(TITLES[data.state]||words(data.state)).toLowerCase():'the open states (due, overdue, waived) or under review';
   let note=states.length?'':'Nothing in '+scope+'.';
   if(data?.next_after)note='More on the next page: send again with after = '+data.next_after;
-  return {tables:stateTables(states),note};
+  if(data?.state==='review_pending')return {tables:reviewTable(states),note};
+  return {tables:[...stateTables(states),...(data?.state?[]:reviewTable(states))],note};
 }
 
 /** One remediation state (the answer of get, notice, request and decide). */
 export function stateView(data){
   if(!isObject(data)||typeof data.subject_id!=='string'||typeof data.state!=='string')return {tables:[],note:''};
-  const reviews=Array.isArray(data.reviews)?data.reviews.length:0;
-  return {tables:stateTables([data]),note:reviews?reviews+' review'+(reviews===1?'':'s')+' (see the JSON below).':''};
+  const notes=[];
+  for(const [field,truncated,name] of [['reviews','reviews_truncated','review'],['records','records_truncated','record']]){
+    const n=Array.isArray(data[field])?data[field].length:0;
+    if(data[truncated]===true)notes.push('The newest '+n+' '+name+'s; older ones are not shown.');
+    else if(n)notes.push(n+' '+name+(n===1?'':'s')+' (see the JSON below).');
+  }
+  return {tables:[...stateTables([data]),...reviewTable([data])],note:notes.join(' ')};
 }
 
-/** `/admin/evidence/status`: the number of remediation states by state. */
+/** `/admin/evidence/status`: the number of remediation states by state, and of pending reviews. */
 export function statusView(data){
   if(!isObject(data))return {tables:[],note:''};
   if(!isObject(data.remediation))
     return {tables:[],note:data.evidence_remediation===false?'Remediation records are off on this authority (EVIDENCE_REMEDIATION).':''};
-  const known=STAGE3_STATES.filter(s=>s in data.remediation), extra=Object.keys(data.remediation).filter(s=>!STAGE3_STATES.includes(s));
+  const known=QUEUE_FILTERS.filter(s=>s in data.remediation), extra=Object.keys(data.remediation).filter(s=>!QUEUE_FILTERS.includes(s));
   const rows=[...known,...extra].map(s=>[TITLES[s]||words(s),text(data.remediation[s])]);
-  return {tables:[{state:'status',caption:'Remediation states',headers:['State','Count'],rows}],note:''};
+  return {tables:[{state:'status',caption:'Remediation states',headers:['State','Count'],rows}],
+    note:'A pending review sits beside a state, so it is counted twice: under its state and under pending reviews.'};
 }
 
 /** A change's remediation, in a few words, for the changes table. */
 export function remediationSummary(r){
   if(!isObject(r))return '';
   const parts=[];
-  if(['remediation_due','overdue','waived'].includes(r.state)||(r.state==='review_pending'&&r.mode))parts.push(plan(r));
+  if(OPEN_STATES.includes(r.state))parts.push(plan(r));
   if(r.remediation_due_at&&r.state!=='remediated')parts.push('due '+time(r.remediation_due_at));
   if(r.overdue_since)parts.push('overdue since '+time(r.overdue_since));
-  if(r.review?.opened_for)parts.push('review '+words(r.review.opened_for));
+  if(r.review_pending===true)parts.push('review '+review(r));
   if(r.waived_until)parts.push('waived until '+time(r.waived_until));
   if(r.lifetime_ends_at)parts.push('lifetime ends '+time(r.lifetime_ends_at));
   if(r.remediation_id)parts.push('remediation '+r.remediation_id);
   if(r.notified_at)parts.push('notified '+time(r.notified_at));
   return parts.filter(Boolean).join('; ');
+}
+
+/** The note under a page of a resource's changes (paged from 1.4.0). */
+export function changesNote(data){
+  if(!data?.truncated)return '';
+  const next=data.next_after_sequence;
+  return Number.isSafeInteger(next)?'More on the next page: send again with after_sequence = '+next:'The resource has more changes than one response holds.';
 }

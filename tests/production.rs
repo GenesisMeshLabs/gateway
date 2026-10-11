@@ -1223,8 +1223,13 @@ async fn remediation_operations_reach_their_routes_as_evidence_store_operations(
         },
     ))
     .await;
-    // A client scoped to the evidence store, as controllers and operators are.
-    let app = router(evidence_fixture(&origin));
+    // A client scoped to the evidence store, as controllers and operators are,
+    // and to changes outside the controlled path for the paged changes view.
+    let mut cfg = evidence_fixture(&origin);
+    cfg.security.as_mut().unwrap().clients[0]
+        .service_groups
+        .insert("out_of_band".into());
+    let app = router(cfg);
     for (path, body, admin, upstream) in [
         (
             "remediation-submit-remediation",
@@ -1268,6 +1273,12 @@ async fn remediation_operations_reach_their_routes_as_evidence_store_operations(
             Some(r#"{"verdict": "waive_until", "waive_until": "2026-10-12T00:00:00Z"}"#),
             true,
             "/admin/evidence/reviews/r-1/decide",
+        ),
+        (
+            "out_of_band-resource-changes?resource_id=kv%3Av%2Fs&after_sequence=1042&limit=1000",
+            None,
+            true,
+            "/admin/evidence/changes/kv:v/s?after_sequence=1042&limit=1000",
         ),
     ] {
         let response = forwarded(&app, path, body, admin).await;

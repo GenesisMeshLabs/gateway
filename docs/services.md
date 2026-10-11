@@ -11,7 +11,7 @@ describe each HTTP method, resource parameter, query field and request example.
 | Boundary | Decide and verify |
 | Boundary policy (`boundary_policy`) | Validate, publish, list, activate, deactivate, history and verify policies; policy-aware evaluation |
 | Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now); remediation records, the due queue, notices and reviews (Genesis Mesh 1.4.0, see [below](#remediation-reviews-and-notification)) |
-| Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table), operator key holders and holder changes (Genesis Mesh 1.3.0) |
+| Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table; paged with `after_sequence` and `limit` from 1.4.0), operator key holders and holder changes (Genesis Mesh 1.3.0) |
 | Disclosure | Commitment, membership proof, nullifier and verification |
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
 | Data usage | Create/read license policy, issue intent and verify |
@@ -122,7 +122,8 @@ forwarding headers. Redirects are refused, requests time out after ten seconds,
 and responses are limited to 2 MiB (the evidence export, forwarded as
 `application/x-ndjson` JSON Lines, to 8 MiB; page it with `since_sequence` and
 `limit`). The due queue, one subject's remediation state and a resource's
-changes may also be up to 8 MiB (1.4.0). Automatic retries are intentionally absent
+changes may also be up to 8 MiB (1.4.0; page the changes with
+`after_sequence` and `limit`). Automatic retries are intentionally absent
 because mutations and consumed nonces cannot safely be replayed.
 
 The authority's answers are relayed with their status and JSON body, with
@@ -191,30 +192,45 @@ forwards the body byte for byte and no query, so sign exactly what is sent.
 
 ### In the console
 
-- **Due queue**: send *Due queue* without `state` for every open state, one
-  table each: remediation due (due time, plan as mode, steps and fallback,
-  actor, resource, when the actor was notified), overdue (`overdue_since`),
-  pending reviews (what opened the review, the requester and holder, the
-  justification, when an emergency change's lifetime ends) and waived
-  (`waived_until`). The `state` field suggests each state.
+- **Due queue**: send *Due queue* without `state` for the open items, one
+  table per state: remediation due (due time, plan as mode, steps and fallback,
+  actor and holder, resource, when the actor was notified), overdue
+  (`overdue_since`) and waived (`waived_until`); items in other states that
+  have a pending review come together in one more table. The `state` field
+  suggests each value.
+- **Pending reviews**: a pending review is a flag beside a state, not a state:
+  an overdue change can be under review, and its due time keeps running. Each
+  table shows the flag in its *Review* column (`pending` and what opened the
+  review, or the latest decided review). The default queue then lists every
+  pending review again with its request: what opened it, the requester and
+  holder, the justification and when an emergency change's lifetime ends.
+  `state=review_pending` shows only that table, whatever the items' states.
 - **Paging**: when a page is full, the note under the table gives the
   `next_after` value; send it as `after` for the next page.
 - **One subject**: *Get remediation*, *Record notice*, *Request review* and
-  *Decide review* show the subject's state as a table; its reviews and records
-  stay in the JSON.
+  *Decide review* show the subject's state as a table (and its pending review);
+  its reviews and records stay in the JSON. *Get remediation* returns the
+  newest 100 of each; the note says when older ones are left out
+  (`reviews_truncated`, `records_truncated`).
 - **Changes**: the changes table of *Resource changes* shows each change's
-  Stage 3 state and its remediation (plan, due time, review, waiver, the
-  remediation record, the notice).
+  Stage 3 state and its remediation (plan, due time, pending review, waiver,
+  the remediation record, the notice). The changes come a page at a time
+  (`limit`, 1 to 10,000, default 1,000); when there are more, the note gives
+  `next_after_sequence`; send it as `after_sequence` for the next page.
 - **Status**: *Status* (evidence store) shows the number of remediation
-  states by state, or that the records are off.
+  states by state and of pending reviews (an item under review is counted
+  under both), or that the records are off.
 
 ### Limits
 
 - A page of the due queue holds up to 500 states, each with its pending
   review; the gateway forwards up to 8 MiB. A page of mostly non-ASCII text
   can still exceed it: send a smaller `limit`.
-- *Get remediation* returns every review and stored record of a subject,
-  unpaged, also up to 8 MiB.
+- *Get remediation* returns a subject's newest 100 reviews and 100 stored
+  records, also up to 8 MiB.
+- A page of a resource's changes (1,000 by default) is forwarded up to 8 MiB:
+  with a remediation object on each change, a default page can pass 2 MiB.
+  For larger `limit` values, page with `after_sequence`.
 - Remediation records count against the authority's evidence submission
   limit (`NA_RATE_LIMIT_EVIDENCE_PER_MINUTE`), which is per client address:
   all of the gateway's clients share it, as they share the observation limit

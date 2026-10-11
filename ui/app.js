@@ -2,7 +2,7 @@ import './mesh.js';
 import './tour.js';
 import {adminRequestFor, operatorHeaders} from './signing.js';
 import {explainFailure, requestIds} from './errors.js';
-import {STAGE3_STATES, queueView, remediationSummary, stateView, statusView} from './remediation.js';
+import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, statusView} from './remediation.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -100,10 +100,10 @@ async function adminAudience(network,token){
   return key;
 }
 // Values offered for a parameter, by operation.
-const CHOICES={'remediation-due-queue':{state:STAGE3_STATES}};
-const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined',...STAGE3_STATES]);
+const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS}};
+const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined',...QUEUE_FILTERS]);
 // A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state,
-// and from 1.4.0 its Stage 3 state and remediation.
+// and from 1.4.0 its Stage 3 state and remediation, a page at a time (after_sequence, limit).
 function renderChanges(data){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   const changes=Array.isArray(data&&data.changes)?data.changes:[];
@@ -120,7 +120,7 @@ function renderChanges(data){
     row.append(node('td',remediationSummary(c.remediation)),node('td',details));
   }
   box.append(table);
-  if(data.truncated)box.append(node('p','The resource has more changes than one response holds.','field-note'));
+  if(changesNote(data))box.append(node('p',changesNote(data),'field-note'));
   box.hidden=false;
 }
 // Remediation states and counts (Genesis Mesh 1.4.0) as captioned tables of text.
