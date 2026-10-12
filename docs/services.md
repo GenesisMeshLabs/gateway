@@ -1,6 +1,6 @@
 # Authority services
 
-The console exposes 91 explicitly allowed authority operations in addition to
+The console exposes 98 explicitly allowed authority operations in addition to
 eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
@@ -10,8 +10,8 @@ describe each HTTP method, resource parameter, query field and request example.
 | Attestations | Issue, list, inspect, verify, revoke and recognition policy |
 | Boundary | Decide and verify |
 | Boundary policy (`boundary_policy`) | Validate, publish, list, activate, deactivate, history and verify policies; policy-aware evaluation |
-| Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now) |
-| Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table), operator key holders and holder changes (Genesis Mesh 1.3.0) |
+| Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now); remediation records, the due queue, notices and reviews (Genesis Mesh 1.4.0, see [below](#remediation-reviews-and-notification)) |
+| Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table; paged with `after_sequence` and `limit` from 1.4.0), operator key holders and holder changes (Genesis Mesh 1.3.0) |
 | Disclosure | Commitment, membership proof, nullifier and verification |
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
 | Data usage | Create/read license policy, issue intent and verify |
@@ -41,6 +41,11 @@ describe each HTTP method, resource parameter, query field and request example.
 5. Send the request and inspect both the HTTP status and protocol result
    (`accepted`, `valid`, `trusted`, or denial reason). A 200 is not a trust grant.
 
+Some answers are also shown as tables above the JSON: a resource's changes,
+the due queue, one subject's remediation state and the evidence store status
+(see [below](#remediation-reviews-and-notification)). The tables hold text
+only; the authority's values are never read as markup.
+
 Use **Insert last response** to put a successful result into a field of the next
 request, such as `offer`, `agreement`, `commitment` or `attestation`. Original
 SDK headers must be regenerated if their body changes or their nonce is consumed.
@@ -67,11 +72,16 @@ client:
 A demo client can never forward an operator-signed request, even with signed
 headers. Non-demo clients may not carry `demo_token`.
 
-The **Guided tour** runs four scenarios with whatever token is connected:
+The **Guided tour** runs five scenarios with whatever token is connected:
 explore the mesh, verify a treaty from another sovereign (and a tampered copy),
-recognize and revoke a membership across sovereigns, and verify a governed
-secret's evidence chain in the browser. The last three read signed records a
-deployment publishes at `/demo-data/` (see `genesismesh/infrastructure/mesh-demo`).
+recognize and revoke a membership across sovereigns, verify a governed
+secret's evidence chain in the browser, and see how changes are governed after
+the fact (1.4.0). The middle three read signed records a deployment publishes
+at `/demo-data/` (see `genesismesh/infrastructure/mesh-demo`). The last reads
+the demo authority's published evidence store status for its remediation
+counts (or that the records are off) and checks that this gateway forwards
+the seven remediation and review operations; demo access cannot call them,
+since they are operator and controller operations.
 
 A network may also set `public_external_treaties: true` (with `public_mesh`)
 to show its treaties to sovereigns outside the gateway as external nodes in
@@ -111,7 +121,9 @@ signature headers. It never forwards gateway bearer tokens, cookies or client
 forwarding headers. Redirects are refused, requests time out after ten seconds,
 and responses are limited to 2 MiB (the evidence export, forwarded as
 `application/x-ndjson` JSON Lines, to 8 MiB; page it with `since_sequence` and
-`limit`). Automatic retries are intentionally absent
+`limit`). The due queue, one subject's remediation state and a resource's
+changes may also be up to 8 MiB (1.4.0; page the changes with
+`after_sequence` and `limit`). Automatic retries are intentionally absent
 because mutations and consumed nonces cannot safely be replayed.
 
 The authority's answers are relayed with their status and JSON body, with
@@ -142,13 +154,87 @@ control characters are refused before any authority request. Other identifiers
 keep the ASCII rule (letters, digits, `-_.:@`).
 
 The catalog is generated from the core's route source by
-`tests/reference/build_service_catalog.py`; CI runs it with `--check` against core
-`main`, so an authority route the gateway has not reviewed fails the build.
+`tests/reference/build_service_catalog.py`; CI runs it with `--check` against the
+core branch of the same name when there is one (a coordinated change), the
+core's tag for a release tag, and core `main` otherwise, so an authority route
+the gateway has not reviewed fails the build.
 
 Service readiness and policy freshness are distinct. An authority may return
 `no_policy`, `recognition_policy_not_configured` or a record-not-found result
 until its operator provisions the relevant data. Those responses are displayed
 without fabricating records or treating missing state as successful trust.
+
+## Remediation, reviews and notification
+
+*Genesis Mesh 1.4.0. The authority's routes are beta until 1.5.0.*
+
+With `EVIDENCE_REMEDIATION=on` at the authority, a change judged after the
+fact becomes due for remediation, is reviewed by a second holder, or is
+waived. The seven operations are in the `evidence_store` group, so a client
+scoped to the evidence store reaches them; until the switch is on they
+answer `404 remediation_disabled`.
+
+| Operation | Authority route | Who |
+| --- | --- | --- |
+| Submit remediation | `POST /evidence/remediations` | A controller: the record's executor signature, no operator headers |
+| Due queue | `GET /admin/evidence/remediations` (`state`, `limit` 1 to 500, `after`) | Operator, read tier |
+| Get remediation | `GET /admin/evidence/remediations/{subject_id}` | Operator, read tier |
+| Record notice | `POST /admin/evidence/remediations/{subject_id}/notified` | Operator, standard tier |
+| Request review | `POST /admin/evidence/reviews` | Operator, standard tier |
+| Get review | `GET /admin/evidence/reviews/{review_id}` | Operator, read tier |
+| Decide review | `POST /admin/evidence/reviews/{review_id}/decide` | Operator, privileged tier, of another holder |
+
+The gateway's `authority_admin` flag only lets a client forward signed
+operator requests; the authority checks each key's tier and, for a decision,
+that its holder is neither the requester nor the actor. A review record
+embeds the decider's signed request, which verifies offline: the gateway
+forwards the body byte for byte and no query, so sign exactly what is sent.
+
+### In the console
+
+- **Due queue**: send *Due queue* without `state` for the open items, one
+  table per state: remediation due (due time, plan as mode, steps and fallback,
+  actor and holder, resource, when the actor was notified), overdue
+  (`overdue_since`) and waived (`waived_until`); items in other states that
+  have a pending review come together in one more table. The `state` field
+  suggests each value.
+- **Pending reviews**: a pending review is a flag beside a state, not a state:
+  an overdue change can be under review, and its due time keeps running. Each
+  table shows the flag in its *Review* column (`pending` and what opened the
+  review, or the latest decided review). The default queue then lists every
+  pending review again with its request: what opened it, the requester and
+  holder, the justification and when an emergency change's lifetime ends.
+  `state=review_pending` shows only that table, whatever the items' states.
+- **Paging**: when a page is full, the note under the table gives the
+  `next_after` value; send it as `after` for the next page.
+- **One subject**: *Get remediation*, *Record notice*, *Request review* and
+  *Decide review* show the subject's state as a table (and its pending review);
+  its reviews and records stay in the JSON. *Get remediation* returns the
+  newest 100 of each; the note says when older ones are left out
+  (`reviews_truncated`, `records_truncated`).
+- **Changes**: the changes table of *Resource changes* shows each change's
+  Stage 3 state and its remediation (plan, due time, pending review, waiver,
+  the remediation record, the notice). The changes come a page at a time
+  (`limit`, 1 to 10,000, default 1,000); when there are more, the note gives
+  `next_after_sequence`; send it as `after_sequence` for the next page.
+- **Status**: *Status* (evidence store) shows the number of remediation
+  states by state and of pending reviews (an item under review is counted
+  under both), or that the records are off.
+
+### Limits
+
+- A page of the due queue holds up to 500 states, each with its pending
+  review; the gateway forwards up to 8 MiB. A page of mostly non-ASCII text
+  can still exceed it: send a smaller `limit`.
+- *Get remediation* returns a subject's newest 100 reviews and 100 stored
+  records, also up to 8 MiB.
+- A page of a resource's changes (1,000 by default) is forwarded up to 8 MiB:
+  with a remediation object on each change, a default page can pass 2 MiB.
+  For larger `limit` values, page with `after_sequence`.
+- Remediation records count against the authority's evidence submission
+  limit (`NA_RATE_LIMIT_EVIDENCE_PER_MINUTE`), which is per client address:
+  all of the gateway's clients share it, as they share the observation limit
+  (see [Observation submission rate](#observation-submission-rate)).
 
 ## Persistence and validation
 

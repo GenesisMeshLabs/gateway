@@ -244,6 +244,43 @@ function report(box, ctx, status, events, failures, decisions, executions, linke
   step(box, null, 'Updated ' + new Date(status.updated_at).toLocaleString(), 'The demo controller acts every ' + Math.round(status.interval_seconds / 60) + ' minutes.');
 }
 
+// ── Changes governed after the fact (Genesis Mesh 1.4.0) ─────────────────────
+const REMEDIATION_OPERATIONS = ['remediation-submit-remediation', 'remediation-due-queue', 'remediation-get-remediation',
+  'remediation-record-notice', 'remediation-request-review', 'remediation-get-review', 'remediation-decide-review'];
+
+/**
+ * What the demo authority's status (`store`, its `/admin/evidence/status`)
+ * says about remediation, and whether this gateway forwards the operations.
+ * Returns `[ok, title, detail]` steps, `ok` null for information.
+ */
+function afterTheFactSteps(store, operations, sovereign) {
+  const steps = [[null, 'A change made outside the controlled path is judged after the fact',
+    'An observed change, or a break-glass change made while the authority was down, is judged under the policy in force. A denied change becomes due for remediation after its grace period: cancelled (rotate forward, then disable) or an alert.']];
+  const where = sovereign ? ' at ' + sovereign : '';
+  const counts = store?.remediation;
+  if (counts && typeof counts === 'object' && !Array.isArray(counts)) {
+    const n = s => Number(counts[s]) || 0;
+    steps.push([true, 'Remediation records are on' + where,
+      n('remediation_due') + ' due, ' + n('overdue') + ' overdue, ' + n('review_pending') + ' pending review, ' + n('waived') + ' waived, ' + n('remediated') + ' remediated, ' + n('upheld') + ' upheld']);
+  } else if (store && typeof store === 'object') {
+    steps.push([null, 'Remediation records are off' + where, 'Changes are judged, not remediated, until the authority turns EVIDENCE_REMEDIATION on.']);
+  } else {
+    steps.push([null, 'This deployment publishes no authority status', 'An operator reads the counts from the evidence store status.']);
+  }
+  const present = REMEDIATION_OPERATIONS.filter(id => (operations || []).some(o => o.id === id));
+  steps.push([present.length === REMEDIATION_OPERATIONS.length, 'This gateway forwards ' + present.length + ' of ' + REMEDIATION_OPERATIONS.length + ' remediation and review operations',
+    'Controllers submit signed remediation records; operators read the due queue, record notices and request reviews. Demo access cannot call them.']);
+  steps.push([null, 'A second holder decides each review',
+    'A privileged operator key of a holder other than the requester and the actor upholds, denies or waives the change until a time. The signed request is embedded in the review record and verifies offline. In the API explorer: Evidence Store, Due queue.']);
+  return steps;
+}
+
+async function afterTheFact(box) {
+  const [ctx, status] = await Promise.all([context().catch(() => null), demoData('status.json').catch(() => null)]);
+  catalog ??= (await getJson('/v1/services')).operations;
+  for (const [ok, title, detail] of afterTheFactSteps(status?.store, catalog, ctx?.sovereign_id)) step(box, ok, title, detail);
+}
+
 // ── Wiring ────────────────────────────────────────────────────────────────────
 async function tryDemo() {
   const state = $('demo-state');
@@ -263,10 +300,11 @@ const scenarios = [
   ['run-treaty', 'treaty-result', verifyTreaty],
   ['run-cross', 'cross-result', crossSovereign],
   ['run-evidence', 'evidence-result', evidenceChain],
+  ['run-after', 'after-result', afterTheFact],
 ];
 for (const [button, box, task] of scenarios) $(button)?.addEventListener('click', () => run($(button), box, task));
 for (const id of ['try-demo', 'try-demo-hero']) $(id)?.addEventListener('click', tryDemo);
 getJson('/v1/demo').then(d => { if (!d.available) for (const id of ['try-demo', 'try-demo-hero']) { if ($(id)) $(id).hidden = true; } }).catch(() => {});
 }
 
-export { canonical, checkEvents, parsePreserving, pythonFloat };
+export { afterTheFactSteps, canonical, checkEvents, parsePreserving, pythonFloat };

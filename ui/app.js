@@ -2,6 +2,7 @@ import './mesh.js';
 import './tour.js';
 import {adminRequestFor, operatorHeaders} from './signing.js';
 import {explainFailure, requestIds} from './errors.js';
+import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, statusView} from './remediation.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -46,7 +47,9 @@ function choose(e){
   $('auth-label').textContent=e.public?'Public':e.admin?'Bearer + operator signature':'Bearer token';
   $('body-field').hidden=!e.body;$('operator-panel').hidden=!e.admin;
   $('parameters').replaceChildren();
-  for(const p of [...(e.parameters||[]),...(e.query||[])]){const wrapper=node('div',undefined,'parameter-field');const l=node('label',label(p)+(e.parameters.includes(p)?' (required)':' (optional)'));l.htmlFor='param-'+p;const input=node('input');input.id='param-'+p;input.dataset.parameter=p;input.autocomplete='off';wrapper.append(l,input);$('parameters').append(wrapper);}
+  for(const p of [...(e.parameters||[]),...(e.query||[])]){const wrapper=node('div',undefined,'parameter-field');const l=node('label',label(p)+(e.parameters.includes(p)?' (required)':' (optional)'));l.htmlFor='param-'+p;const input=node('input');input.id='param-'+p;input.dataset.parameter=p;input.autocomplete='off';wrapper.append(l,input);
+    const choices=CHOICES[e.id]?.[p];if(choices){const list=node('datalist');list.id='choices-'+p;for(const c of choices){const o=node('option');o.value=c;list.append(o);}input.setAttribute('list',list.id);wrapper.append(list);}
+    $('parameters').append(wrapper);}
   if(e.body){$('request-body').value=JSON.stringify(example(e.body),null,2);updateInsertFields();}
   $('send').textContent=e.admin?'Send signed request':'Send request';renderEndpoints();
 }
@@ -96,14 +99,17 @@ async function adminAudience(network,token){
   audiences.set(network,key);
   return key;
 }
-const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined']);
-// A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state.
+// Values offered for a parameter, by operation.
+const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS}};
+const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined',...QUEUE_FILTERS]);
+// A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state,
+// and from 1.4.0 its Stage 3 state and remediation, a page at a time (after_sequence, limit).
 function renderChanges(data){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   const changes=Array.isArray(data&&data.changes)?data.changes:[];
   if(!changes.length)return;
   const table=node('table',undefined,'changes-table'), head=table.createTHead().insertRow(), body=table.createTBody();
-  for(const title of ['#','Kind','Action','When','Governed by','State','Details'])head.append(node('th',title));
+  for(const title of ['#','Kind','Action','When','Governed by','State','Remediation','Details']){const th=node('th',title);th.scope='col';head.append(th);}
   for(const c of changes){
     const details=[c.flagged_for_review?'flagged for review':'',c.justification?'justification: '+c.justification:'',
       c.rejection_code?'refused: '+c.rejection_code:'',c.observed_by?'observed by '+c.observed_by:'',
@@ -111,12 +117,27 @@ function renderChanges(data){
     const row=body.insertRow();
     for(const text of [c.store_sequence,c.kind,c.action,c.at,c.governed_by])row.append(node('td',text==null?'':String(text)));
     row.append(node('td',String(c.state||''),CHANGE_STATES.has(c.state)?'state '+c.state:'state'));
-    row.append(node('td',details));
+    row.append(node('td',remediationSummary(c.remediation)),node('td',details));
   }
   box.append(table);
-  if(data.truncated)box.append(node('p','The resource has more changes than one response holds.','field-note'));
+  if(changesNote(data))box.append(node('p',changesNote(data),'field-note'));
   box.hidden=false;
 }
+// Remediation states and counts (Genesis Mesh 1.4.0) as captioned tables of text.
+function renderTables(view){
+  const box=$('response-table');box.replaceChildren();box.hidden=true;
+  for(const t of view.tables){
+    const table=node('table',undefined,'changes-table');table.createCaption().textContent=t.caption;
+    const head=table.createTHead().insertRow(), body=table.createTBody();
+    for(const title of t.headers){const th=node('th',title);th.scope='col';head.append(th);}
+    for(const cells of t.rows){const row=body.insertRow();cells.forEach((text,i)=>row.append(node('td',text,t.headers[i]==='State'&&CHANGE_STATES.has(text)?'state '+text:undefined)));}
+    box.append(table);
+  }
+  if(view.note)box.append(node('p',view.note,'field-note'));
+  box.hidden=!box.childElementCount;
+}
+const VIEWS={'remediation-due-queue':queueView,'remediation-get-remediation':stateView,'remediation-record-notice':stateView,
+  'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':statusView};
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
   $('response-table').hidden=true;
@@ -162,6 +183,7 @@ async function send(){
     if(response.ok)lastResult=data;
     if(e.id==='networks'&&response.ok)renderNetworks(data);
     if(e.id==='out_of_band-resource-changes'&&response.ok)renderChanges(data);
+    if(VIEWS[e.id]&&response.ok)renderTables(VIEWS[e.id](data));
   }catch(error){if(generation===sessionGeneration)$('request-state').textContent=error.message||'Request could not be completed.';}
   finally{busy=false;$('send').disabled=false;$('network-select').disabled=false;}
 }

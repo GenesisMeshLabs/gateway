@@ -21,6 +21,7 @@ jobs:
       - run: node tools/test_ui_signing.mjs
       - run: node tools/test_ui_errors.mjs
       - run: node tools/test_ui_tour.mjs
+      - run: node tools/test_ui_remediation.mjs
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable

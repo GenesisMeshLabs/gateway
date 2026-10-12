@@ -34,7 +34,16 @@ SERVICE_QUERY = {
 }
 # Responses that are not a JSON document, forwarded as text within their own limit.
 RESPONSE_FORMATS = {"/admin/evidence/export": {"response": "ndjson", "max_response_bytes": 8 * 1024 * 1024}}
-GROUPS = {"public": "network", "health": "network", "crl": "network", "admin": "administration"}
+# JSON responses that may exceed the default 2 MiB: a due-queue page (up to 500
+# states, each with its pending review), one subject's every review and record,
+# and a resource's changes (up to 10,000, each with its remediation from 1.4.0).
+RESPONSE_LIMITS = {path: {"max_response_bytes": 8 * 1024 * 1024} for path in [
+    "/admin/evidence/remediations", "/admin/evidence/remediations/{subject_id}",
+    "/admin/evidence/changes/{resource_id}"]}
+# The remediation routes (1.4.0) are evidence-store operations: a client scoped
+# to the store reaches them, as controllers submit their remediation records there.
+GROUPS = {"public": "network", "health": "network", "crl": "network", "admin": "administration",
+          "remediation": "evidence_store"}
 examples = {}
 doc = (SOURCE / "docs/api/trust-http.md").read_text(encoding="utf-8")
 for section in re.split(r"(?=### `)", doc):
@@ -69,6 +78,10 @@ examples.update({
     "/evidence/execution": {"evidence": {}},
     "/admin/evidence/executor-keys": {"key_id": "controller-1", "public_key": "PASTE_EXECUTOR_PUBLIC_KEY", "executor_sovereign_id": "controller-1"},
     "/admin/evidence/retention/apply": {"older_than_days": 365},
+    "/evidence/remediations": {"record": {}},
+    "/admin/evidence/remediations/{subject_id}/notified": {"channel": "email"},
+    "/admin/evidence/reviews": {"subject_kind": "judgement", "subject_id": "PASTE_JUDGEMENT_ID", "justification": "Why a second holder should review this change"},
+    "/admin/evidence/reviews/{review_id}/decide": {"verdict": "uphold", "note": "Reviewed with the change owner"},
 })
 operations = []
 for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
@@ -94,7 +107,7 @@ for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
                     "description": (ast.get_docstring(function) or "Genesis Mesh authority operation.").splitlines()[0],
                     "method": method, "upstream_path": path, "admin": path.startswith("/admin/") or path == "/nodes",
                     "parameters": parameters, "query": query, "body": body if method != "GET" else None,
-                    **RESPONSE_FORMATS.get(path, {})})
+                    **RESPONSE_FORMATS.get(path, {}), **RESPONSE_LIMITS.get(path, {})})
 assert len({o["id"] for o in operations}) == len(operations)
 outputs = {ROOT / "ui/services.json": json.dumps(operations, indent=2) + "\n"}
 

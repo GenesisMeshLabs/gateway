@@ -23,9 +23,10 @@ canonical JSON and signature compatibility.
 - Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
 - Public demo access (`GET /v1/demo`, read and verify only, enforced at startup)
   and a guided tour of portable trust in the console.
-- 80 scoped Network Authority operations: every SDK service area, boundary
-  policies, the execution evidence store, enrollment, discovery, treaties and
-  administration, with browser-side operator signing.
+- 98 scoped Network Authority operations: every SDK service area, boundary
+  policies, the execution evidence store, changes outside the controlled path,
+  remediation and reviews, enrollment, discovery, treaties and administration,
+  with browser-side operator signing.
 - Non-root container with read-only filesystem and constrained resources.
 
 See [platform controls](docs/platform.md) for activation, persistent-volume bootstrap,

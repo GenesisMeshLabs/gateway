@@ -1252,8 +1252,12 @@
     "parameters": [
       "resource_id"
     ],
-    "query": [],
-    "body": null
+    "query": [
+      "after_sequence",
+      "limit"
+    ],
+    "body": null,
+    "max_response_bytes": 8388608
   },
   {
     "id": "out_of_band-operator-holders",
@@ -1354,6 +1358,115 @@
     "parameters": [],
     "query": [],
     "body": null
+  },
+  {
+    "id": "remediation-submit-remediation",
+    "group": "evidence_store",
+    "name": "Submit remediation",
+    "description": "Admit one signed remediation record (a cancel carried out, or an alert).",
+    "method": "POST",
+    "upstream_path": "/evidence/remediations",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "record": {}
+    }
+  },
+  {
+    "id": "remediation-due-queue",
+    "group": "evidence_store",
+    "name": "Due queue",
+    "description": "Remediations and reviews by state (default: remediation_due, overdue, review_pending, waived).",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/remediations",
+    "admin": true,
+    "parameters": [],
+    "query": [
+      "after",
+      "limit",
+      "state"
+    ],
+    "body": null,
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "remediation-get-remediation",
+    "group": "evidence_store",
+    "name": "Get remediation",
+    "description": "One judgement's or decision's remediation state, its reviews and its stored records.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/remediations/{subject_id}",
+    "admin": true,
+    "parameters": [
+      "subject_id"
+    ],
+    "query": [],
+    "body": null,
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "remediation-record-notice",
+    "group": "evidence_store",
+    "name": "Record notice",
+    "description": "Record that the controller told the actor: an audit event and notified_at.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/remediations/{subject_id}/notified",
+    "admin": true,
+    "parameters": [
+      "subject_id"
+    ],
+    "query": [],
+    "body": {
+      "channel": "email"
+    }
+  },
+  {
+    "id": "remediation-request-review",
+    "group": "evidence_store",
+    "name": "Request review",
+    "description": "Ask a second holder to review a judged change or a decision, with a justification.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/reviews",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "subject_kind": "judgement",
+      "subject_id": "PASTE_JUDGEMENT_ID",
+      "justification": "Why a second holder should review this change"
+    }
+  },
+  {
+    "id": "remediation-get-review",
+    "group": "evidence_store",
+    "name": "Get review",
+    "description": "A review: pending (its request) or decided (its signed record).",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/reviews/{review_id}",
+    "admin": true,
+    "parameters": [
+      "review_id"
+    ],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "remediation-decide-review",
+    "group": "evidence_store",
+    "name": "Decide review",
+    "description": "Uphold, deny or waive (until a time) as a privileged key of another holder.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/reviews/{review_id}/decide",
+    "admin": true,
+    "parameters": [
+      "review_id"
+    ],
+    "query": [],
+    "body": {
+      "verdict": "uphold",
+      "note": "Reviewed with the change owner"
+    }
   },
   {
     "id": "treaties-issue-treaty",
