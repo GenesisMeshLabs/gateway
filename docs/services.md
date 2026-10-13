@@ -259,7 +259,15 @@ The key history file is public on the authority, so the gateway reads it
 as it reads the genesis block. Recording a succession replaces the key the
 authority signs with, so it sits in `administration`, not `network`: a
 client needs that group and `authority_admin` to forward it, and the
-authority still checks the privileged tier and the root key's signature.
+authority still checks the privileged tier and the record's signatures.
+
+The record must reach the authority with two signatures already on it:
+the root key's, made offline (`genesis-mesh na succession sign`), and the
+new key's proof of possession, made where the new key lives (`genesis-mesh
+na succession prove`). The authority adds the outgoing key's
+countersignature, so the record it returns has three. The request example
+`{"succession": {}}` is only a placeholder: paste the record the two
+commands produced.
 
 ### Read tier for evidence reads
 
@@ -291,7 +299,9 @@ to a read key.
 against the authority itself, with a read-tier key. Then `genesis-mesh audit
 archive` writes the pack to immutable storage and records the archive.
 Recording an archive through the gateway, as above, is for a pack already
-written and read back.
+written and read back. The authority records only a pack it built itself
+(`409 archive_pack_unknown`) and whose own checks passed (`409
+archive_pack_unverified`).
 
 Why the pack is left out:
 
@@ -305,7 +315,11 @@ Why the pack is left out:
   minutes.
 - **Load.** The gateway's quotas count requests, not bytes. Through the
   gateway, any read-tier client could start full-range exports and
-  verifications.
+  verifications. The authority allows a number of packs an hour per client
+  address (`NA_RATE_LIMIT_AUDIT_PACKS_PER_HOUR`, 12 by default) and answers
+  `429` beyond it. Every request the gateway forwards comes from the
+  gateway's address, so its clients would share that one allowance, as they
+  share the [observation limit](#observation-submission-rate).
 - **Little to gain.** The pack's manifest is signed by the NA and checked
   offline from the root key, so a pack is no more trustworthy for passing
   through the gateway. The paged JSON Lines export stays available for SIEM
@@ -320,7 +334,8 @@ Why the pack is left out:
   succeeded key, or one that takes effect later, and the instance that
   answered.
 - The successions, if any, come in a second table: the key each replaced,
-  when it takes effect and when it was issued.
+  when it takes effect, when it was issued and who signed it. The signatures
+  are listed by key ID: the root key, the new key and the outgoing key.
 - *Succession* shows the same tables for the history it returns.
 - The console shows the history and does not check it. A verifier checks it
   from the root key it already holds: keys named in the history prove nothing
@@ -334,13 +349,32 @@ are new in 1.5.0:
 | Area | Codes |
 | --- | --- |
 | NA key (`503`, relayed with `Retry-After`) | `na_key_succeeded`, `na_key_not_yet_effective`, `na_key_expired` |
-| Succession | `invalid_succession`, `succession_after_expiry`, `succession_chain_break`, `succession_invalid_root_signature`, `succession_key_reused`, `succession_not_increasing`, `succession_pending`, `succession_sovereign_mismatch`, `succession_times_invalid` |
-| Archive | `invalid_archive`, `archive_anchor_mismatch`, `archive_conflict`, `archive_manifest_invalid`, `archive_not_contiguous` |
+| Succession (`400`, `409`, `422`) | `invalid_succession`, `succession_after_expiry`, `succession_backdated`, `succession_chain_break`, `succession_invalid_new_key_signature`, `succession_invalid_root_signature`, `succession_key_reused`, `succession_not_increasing`, `succession_pending`, `succession_sovereign_mismatch`, `succession_times_invalid` |
+| Archive (`400`, `409`, `422`) | `invalid_archive`, `archive_anchor_mismatch`, `archive_conflict`, `archive_manifest_invalid`, `archive_not_contiguous`, `archive_pack_unknown`, `archive_pack_unverified` |
 | Retention | `held_back` with `"reason": "not_archived"` (a `200`, not an error) |
 
 The audit pack's codes (`audit_pack_not_anchored`, `audit_pack_too_large`,
-`invalid_audit_pack`, `evidence_store_incomplete`) reach only clients of the
-authority itself.
+`invalid_audit_pack`, `evidence_store_incomplete`) and its hourly `429`
+reach only clients of the authority itself.
+
+### Authority readiness
+
+The authority's own readiness is the `health-readyz` operation (`GET
+/readyz`, `network` group); the gateway's `GET /ready` covers only the
+gateway's revocation data. From 1.5.0 the authority's answer includes
+`na_key.state`:
+
+- `signing`: this instance's key signs now.
+- `pending`: the instance was started with a new key before its succession
+  takes effect (`signs_from` says when).
+- `stopped`: its key was succeeded or has expired.
+
+Only `signing` is ready. Otherwise the authority answers `503
+service_not_ready`, and the gateway relays it with its checks under
+`error.details` (`na_key` among them), as it relays every `503` that is a
+JSON object.
+
+### Response limits
 
 Each limit stays the default 2 MiB. The archive list is not paged: at about
 1 KB per archive record it holds some 2,000 archives. Past that, read it from
