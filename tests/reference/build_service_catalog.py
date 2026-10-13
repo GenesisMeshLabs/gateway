@@ -7,7 +7,9 @@ This is a development tool; deployed gateways never discover arbitrary routes.
 
 ``--check`` writes nothing and fails when the committed catalog or OpenAPI
 document differs from what the core source produces (CI runs it against core
-main, so a new core route cannot go unreviewed).
+main, so a new core route cannot go unreviewed). A route left out on purpose
+is listed in ``NOT_FORWARDED`` with its reason; the run fails when the core
+no longer has one of them.
 """
 import argparse
 import ast
@@ -26,6 +28,12 @@ EXCLUDE = {"/", "/favicon.svg", "/favicon.ico", "/operator-console-static/logo.s
            "/operator-console-static/styles.css", "/operator-console-static/console.js",
            "/dashboard", "/api-reference", "/cli-reference", "/atlas", "/connectome",
            "/metrics", "/healthz", "/swagger.json", "/surfaces"}
+# Authority routes the gateway deliberately does not forward, with the reason.
+# An audit pack (1.5.0) is one answer of up to 50,000 entries with everything
+# they cite, often 50 MB or more: the gateway would hold it in memory several
+# times over, past its 10-second authority timeout (the CLI waits 120 s). An
+# auditor runs `genesis-mesh audit pack` against the authority instead.
+NOT_FORWARDED = {"/admin/evidence/audit-pack": "audit pack: an unpaged bulk export of up to 50,000 entries"}
 # Query parameters the core reads in its service layer rather than the route.
 SERVICE_QUERY = {
     "/admin/evidence": ["after_sequence", "attestation_id", "capability", "decision_id", "entry_kind",
@@ -42,8 +50,12 @@ RESPONSE_LIMITS = {path: {"max_response_bytes": 8 * 1024 * 1024} for path in [
     "/admin/evidence/changes/{resource_id}"]}
 # The remediation routes (1.4.0) are evidence-store operations: a client scoped
 # to the store reaches them, as controllers submit their remediation records there.
+# The key history (1.5.0) is public network metadata, read like the genesis block.
 GROUPS = {"public": "network", "health": "network", "crl": "network", "admin": "administration",
-          "remediation": "evidence_store"}
+          "remediation": "evidence_store", "key_history": "network"}
+# Routes whose group is not their file's: recording a succession replaces the
+# NA's signing key, so only clients scoped to administration may forward it.
+PATH_GROUPS = {"/admin/na/succession": "administration"}
 examples = {}
 doc = (SOURCE / "docs/api/trust-http.md").read_text(encoding="utf-8")
 for section in re.split(r"(?=### `)", doc):
@@ -77,13 +89,17 @@ examples.update({
     "/boundary-policies/verify": {"policy": {}, "issuer_public_keys": []},
     "/evidence/execution": {"evidence": {}},
     "/admin/evidence/executor-keys": {"key_id": "controller-1", "public_key": "PASTE_EXECUTOR_PUBLIC_KEY", "executor_sovereign_id": "controller-1"},
-    "/admin/evidence/retention/apply": {"older_than_days": 365},
+    # through_sequence (1.5.0): the last entry an archive covers; the placeholder is refused unedited.
+    "/admin/evidence/retention/apply": {"older_than_days": 365, "through_sequence": "PASTE_ARCHIVED_THROUGH_SEQUENCE"},
+    "/admin/evidence/archives": {"manifest": {}, "location": "PASTE_ARCHIVE_LOCATION"},
+    "/admin/na/succession": {"succession": {}},
     "/evidence/remediations": {"record": {}},
     "/admin/evidence/remediations/{subject_id}/notified": {"channel": "email"},
     "/admin/evidence/reviews": {"subject_kind": "judgement", "subject_id": "PASTE_JUDGEMENT_ID", "justification": "Why a second holder should review this change"},
     "/admin/evidence/reviews/{review_id}/decide": {"verdict": "uphold", "note": "Reviewed with the change owner"},
 })
 operations = []
+left_out = set()
 for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
     tree = ast.parse(file.read_text(encoding="utf-8"))
     for function in ast.walk(tree):
@@ -95,6 +111,9 @@ for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
             path = ast.literal_eval(dec.args[0])
             if path in EXCLUDE:
                 continue
+            if path in NOT_FORWARDED:
+                left_out.add(path)
+                continue
             methods = next((ast.literal_eval(k.value) for k in dec.keywords if k.arg == "methods"), ["GET"])
             parameters = re.findall(r"<(?:path:)?([^>]+)>", path)
             path = re.sub(r"<(?:path:)?([^>]+)>", r"{\1}", path)
@@ -103,12 +122,13 @@ for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
             for method in methods:
                 body = examples.get(path, {"reason": "cessation_of_operation"} if path.endswith("/revoke") else {})
                 operations.append({"id": file.stem + "-" + function.name.replace("_", "-"),
-                    "group": GROUPS.get(file.stem, file.stem), "name": function.name.removesuffix("_route").replace("_", " ").capitalize(),
+                    "group": PATH_GROUPS.get(path, GROUPS.get(file.stem, file.stem)), "name": function.name.removesuffix("_route").replace("_", " ").capitalize(),
                     "description": (ast.get_docstring(function) or "Genesis Mesh authority operation.").splitlines()[0],
                     "method": method, "upstream_path": path, "admin": path.startswith("/admin/") or path == "/nodes",
                     "parameters": parameters, "query": query, "body": body if method != "GET" else None,
                     **RESPONSE_FORMATS.get(path, {}), **RESPONSE_LIMITS.get(path, {})})
 assert len({o["id"] for o in operations}) == len(operations)
+assert left_out == set(NOT_FORWARDED), f"routes left out that the core no longer has: {set(NOT_FORWARDED) - left_out}"
 outputs = {ROOT / "ui/services.json": json.dumps(operations, indent=2) + "\n"}
 
 spec_path = ROOT / "ui/openapi.json"
@@ -132,8 +152,10 @@ if args.check:
     if drift:
         sys.exit(f"Catalog drift from the core: regenerate {', '.join(drift)} with "
                  "tests/reference/build_service_catalog.py and review the new operations.")
-    print(f"Catalog matches the core: {len(operations)} reviewed operations")
+    print(f"Catalog matches the core: {len(operations)} reviewed operations, {len(left_out)} route(s) not forwarded")
 else:
     for path, text in outputs.items():
-        path.write_text(text, encoding="utf-8")
-    print(f"Generated {len(operations)} reviewed operations")
+        # LF on every platform, as the repository stores them.
+        path.write_text(text, encoding="utf-8", newline="\n")
+    print(f"Generated {len(operations)} reviewed operations; not forwarded: "
+          + ", ".join(f"{p} ({why})" for p, why in sorted(NOT_FORWARDED.items())))

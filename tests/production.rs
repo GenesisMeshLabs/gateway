@@ -1414,6 +1414,277 @@ async fn a_full_due_queue_page_fits_and_a_review_keeps_the_default_limit() {
     task.abort();
 }
 
+/// A client scoped to the network, the evidence store and administration,
+/// with operator forwarding: an NA operator's gateway client (1.5.0).
+fn audit_fixture(origin: &str) -> Config {
+    let mut cfg = evidence_fixture(origin);
+    cfg.security.as_mut().unwrap().clients[0].service_groups = [
+        "network".into(),
+        "evidence_store".into(),
+        "administration".into(),
+    ]
+    .into();
+    cfg
+}
+
+#[tokio::test]
+async fn key_history_succession_and_archive_operations_reach_their_routes() {
+    // (method, upstream path and query, body, operator headers present)
+    type Seen = (String, String, String, bool);
+    let seen = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<Seen>::new()));
+    let record = seen.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(
+        move |method: axum::http::Method,
+              uri: axum::http::Uri,
+              headers: axum::http::HeaderMap,
+              body: axum::body::Bytes| {
+            let record = record.clone();
+            async move {
+                assert!(!headers.contains_key("authorization"));
+                record.lock().await.push((
+                    method.to_string(),
+                    uri.to_string(),
+                    String::from_utf8(body.to_vec()).unwrap(),
+                    headers.contains_key("x-admin-signature"),
+                ));
+                axum::Json(json!({"status": "recorded"}))
+            }
+        },
+    ))
+    .await;
+    let app = router(audit_fixture(&origin));
+    // (operation, body, operator headers sent, upstream, operator headers forwarded)
+    for (path, body, admin, upstream, signed) in [
+        (
+            "key_history-key-history",
+            None,
+            false,
+            "/na/key-history",
+            false,
+        ),
+        // The key history is public: operator headers sent with it go no further.
+        (
+            "key_history-key-history",
+            None,
+            true,
+            "/na/key-history",
+            false,
+        ),
+        (
+            "key_history-succession",
+            Some(r#"{"succession": {"succession_id": "s-2", "key_sequence": 2}}"#),
+            true,
+            "/admin/na/succession",
+            true,
+        ),
+        (
+            "evidence_store-list-archives",
+            None,
+            true,
+            "/admin/evidence/archives",
+            true,
+        ),
+        (
+            "evidence_store-record-archive",
+            Some(r#"{"manifest": {"pack_id": "p-1"}, "location": "s3://audit/p-1"}"#),
+            true,
+            "/admin/evidence/archives",
+            true,
+        ),
+        // through_sequence (1.5.0), alone or with older_than_days.
+        (
+            "evidence_store-apply-retention",
+            Some(r#"{"through_sequence": 4096}"#),
+            true,
+            "/admin/evidence/retention/apply",
+            true,
+        ),
+        (
+            "evidence_store-apply-retention",
+            Some(r#"{"older_than_days": 365, "through_sequence": 4096}"#),
+            true,
+            "/admin/evidence/retention/apply",
+            true,
+        ),
+    ] {
+        let response = forwarded(&app, path, body, admin).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let last = seen.lock().await.last().unwrap().clone();
+        let method = if body.is_some() { "POST" } else { "GET" };
+        // The signed body reaches the authority byte for byte.
+        assert_eq!(
+            last,
+            (
+                method.to_owned(),
+                upstream.to_owned(),
+                body.unwrap_or_default().to_owned(),
+                signed
+            ),
+            "{path}"
+        );
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn the_key_history_is_a_network_read_and_a_succession_needs_administration() {
+    let (origin, task) =
+        mock_authority(Router::new().fallback(|| async {
+            axum::Json(json!({"sovereign_id": "public-agency", "keys": []}))
+        }))
+        .await;
+    // Network only, no operator forwarding: the key history, and nothing else of 1.5.0.
+    let mut cfg = service_fixture(&origin);
+    cfg.security.as_mut().unwrap().clients[0].service_groups = ["network".into()].into();
+    let app = router(with_demo(cfg, demo_client()));
+    let (status, body) = call(
+        &app,
+        "/v1/networks/public-agency/services/key_history-key-history",
+        None,
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["sovereign_id"], "public-agency");
+    // So may the public demo client, which can never forward a succession.
+    for (path, body, expected) in [
+        ("key_history-key-history", None, StatusCode::OK),
+        (
+            "key_history-succession",
+            Some(json!({})),
+            StatusCode::FORBIDDEN,
+        ),
+        ("evidence_store-list-archives", None, StatusCode::FORBIDDEN),
+    ] {
+        let (status, _) = call(
+            &app,
+            &format!("/v1/networks/public-agency/services/{path}"),
+            body,
+            Some(DEMO_TOKEN),
+        )
+        .await;
+        assert_eq!(status, expected, "demo {path}");
+    }
+    for (path, body) in [
+        ("key_history-succession", Some("{}")),
+        ("evidence_store-list-archives", None),
+        ("evidence_store-record-archive", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+    }
+    // Operator forwarding with the network and the evidence store still cannot
+    // replace the NA's key: a succession is an administration operation.
+    let mut cfg = evidence_fixture(&origin);
+    cfg.security.as_mut().unwrap().clients[0].service_groups =
+        ["network".into(), "evidence_store".into()].into();
+    let app = router(cfg);
+    let response = forwarded(&app, "key_history-succession", Some("{}"), true).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Every operator route needs the operator headers; the authority checks
+    // the tier (read for the archive list, privileged for the rest).
+    let app = router(audit_fixture(&origin));
+    for (path, body) in [
+        ("key_history-succession", Some("{}")),
+        ("evidence_store-list-archives", None),
+        ("evidence_store-record-archive", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, false).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+    }
+    // None of them takes a query.
+    for (path, body) in [
+        ("key_history-key-history?at=2026-11-01T00:00:00Z", None),
+        ("evidence_store-list-archives?limit=10", None),
+        ("evidence_store-record-archive?pack_id=p-1", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn the_audit_pack_is_not_forwarded_and_the_new_operations_keep_the_default_limit() {
+    let app = router(audit_fixture("http://127.0.0.1:9"));
+    let (_, catalog) = call(&app, "/v1/services", None, None).await;
+    let operations = catalog["operations"].as_array().unwrap();
+    // An audit pack is one unpaged answer of up to 50,000 entries: auditors
+    // run `genesis-mesh audit pack` against the authority instead.
+    assert!(operations
+        .iter()
+        .all(|o| o["upstream_path"] != "/admin/evidence/audit-pack"
+            && !o["id"].as_str().unwrap().contains("audit-pack")));
+    let response = forwarded(&app, "evidence_store-audit-pack", Some("{}"), true).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let (_, spec) = call(&app, "/openapi.json", None, None).await;
+    assert!(!spec.to_string().contains("audit-pack"));
+    // (operation, group, operator-signed); each answer within the default 2 MiB.
+    for (id, group, admin) in [
+        ("key_history-key-history", "network", false),
+        ("key_history-succession", "administration", true),
+        ("evidence_store-list-archives", "evidence_store", true),
+        ("evidence_store-record-archive", "evidence_store", true),
+        ("evidence_store-apply-retention", "evidence_store", true),
+    ] {
+        let op = operations.iter().find(|o| o["id"] == id).unwrap();
+        assert_eq!(op["group"], group, "{id}");
+        assert_eq!(op["admin"], admin, "{id}");
+        assert!(op.get("max_response_bytes").is_none(), "{id}");
+        assert_eq!(op["query"], json!([]), "{id}");
+    }
+    let retention = operations
+        .iter()
+        .find(|o| o["id"] == "evidence_store-apply-retention")
+        .unwrap();
+    assert!(retention["body"].get("through_sequence").is_some());
+}
+
+#[tokio::test]
+async fn refusals_of_the_key_history_and_archives_keep_their_code() {
+    // A 503 from an NA whose key may no longer sign is relayed with its code;
+    // so are the archive and succession refusals.
+    for (status, code, path) in [
+        (503, "na_key_succeeded", "evidence_store-record-archive"),
+        (503, "na_key_not_yet_effective", "key_history-succession"),
+        (503, "na_key_expired", "evidence_store-apply-retention"),
+        (
+            409,
+            "archive_not_contiguous",
+            "evidence_store-record-archive",
+        ),
+        (
+            422,
+            "archive_manifest_invalid",
+            "evidence_store-record-archive",
+        ),
+        (409, "succession_pending", "key_history-succession"),
+        (
+            422,
+            "succession_invalid_root_signature",
+            "key_history-succession",
+        ),
+    ] {
+        let (origin, task) = mock_authority(Router::new().fallback(move || async move {
+            (
+                StatusCode::from_u16(status).unwrap(),
+                axum::Json(json!({"error": {"code": code, "message": "refused"}})),
+            )
+        }))
+        .await;
+        let app = router(audit_fixture(&origin));
+        let response = forwarded(&app, path, Some("{}"), true).await;
+        assert_eq!(response.status().as_u16(), status, "{code}");
+        let retry = response.headers().get("retry-after").cloned();
+        let body: Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["error"]["code"], code);
+        assert_eq!(retry.is_some(), status == 503, "{code}");
+        task.abort();
+    }
+}
+
 #[tokio::test]
 async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     let (origin, task) =

@@ -11,6 +11,8 @@ python tests/reference/build_service_catalog.py
 ```
 
 Review all generated changes. Catalog generation must never silently expand the
-deployed allowlist. The Rust interoperability tests consume committed vectors and
+deployed allowlist. Authority routes left out on purpose are listed, with the
+reason, in the generator's `NOT_FORWARDED`; the run fails when the core no
+longer has one of them. The Rust interoperability tests consume committed vectors and
 run without Python. `tools/test_ui_signing.mjs` compares browser signing with
 Python canonical JSON as a separate CI check.

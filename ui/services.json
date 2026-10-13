@@ -1128,6 +1128,33 @@
     "body": {}
   },
   {
+    "id": "evidence_store-list-archives",
+    "group": "evidence_store",
+    "name": "List archives",
+    "description": "Archive records, and how far an unbroken run of them covers the store.",
+    "method": "GET",
+    "upstream_path": "/admin/evidence/archives",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "evidence_store-record-archive",
+    "group": "evidence_store",
+    "name": "Record archive",
+    "description": "Record that a pack was written to immutable storage and read back intact.",
+    "method": "POST",
+    "upstream_path": "/admin/evidence/archives",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "manifest": {},
+      "location": "PASTE_ARCHIVE_LOCATION"
+    }
+  },
+  {
     "id": "evidence_store-apply-retention",
     "group": "evidence_store",
     "name": "Apply retention",
@@ -1138,7 +1165,8 @@
     "parameters": [],
     "query": [],
     "body": {
-      "older_than_days": 365
+      "older_than_days": 365,
+      "through_sequence": "PASTE_ARCHIVED_THROUGH_SEQUENCE"
     }
   },
   {
@@ -1176,6 +1204,32 @@
     "parameters": [],
     "query": [],
     "body": null
+  },
+  {
+    "id": "key_history-key-history",
+    "group": "network",
+    "name": "Key history",
+    "description": "The NA's key history: what a verifier holding the root key needs to check NA signatures.",
+    "method": "GET",
+    "upstream_path": "/na/key-history",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": null
+  },
+  {
+    "id": "key_history-succession",
+    "group": "administration",
+    "name": "Succession",
+    "description": "Record a key succession: checked, countersigned by the outgoing key, stored.",
+    "method": "POST",
+    "upstream_path": "/admin/na/succession",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "succession": {}
+    }
   },
   {
     "id": "out_of_band-submit-observation",
