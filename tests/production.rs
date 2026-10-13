@@ -432,6 +432,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/assets/app.js",
         "/assets/errors.js",
         "/assets/remediation.js",
+        "/assets/keys.js",
         "/openapi.json",
         "/no/such/path",
     ] {
@@ -1682,6 +1683,32 @@ async fn refusals_of_the_key_history_and_archives_keep_their_code() {
         assert_eq!(body["error"]["code"], code);
         assert_eq!(retry.is_some(), status == 503, "{code}");
         task.abort();
+    }
+}
+
+#[tokio::test]
+async fn the_console_serves_its_key_history_view() {
+    let app = router(fixture().0);
+    for (path, content_type, marker) in [
+        (
+            "/assets/keys.js",
+            "text/javascript",
+            "export function keyHistoryView",
+        ),
+        ("/assets/app.js", "text/javascript", "./keys.js"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with(content_type));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
     }
 }
 

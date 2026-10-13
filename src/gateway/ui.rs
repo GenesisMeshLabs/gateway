@@ -28,6 +28,12 @@ pub(super) async fn errors_script() -> impl IntoResponse {
         include_str!("../../ui/errors.js"),
     )
 }
+pub(super) async fn keys_script() -> impl IntoResponse {
+    (
+        [("content-type", "text/javascript; charset=utf-8")],
+        include_str!("../../ui/keys.js"),
+    )
+}
 pub(super) async fn remediation_script() -> impl IntoResponse {
     (
         [("content-type", "text/javascript; charset=utf-8")],

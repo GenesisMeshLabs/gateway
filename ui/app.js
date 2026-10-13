@@ -3,6 +3,7 @@ import './tour.js';
 import {adminRequestFor, operatorHeaders} from './signing.js';
 import {explainFailure, requestIds} from './errors.js';
 import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, statusView} from './remediation.js';
+import {keyHistoryView, successionView} from './keys.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -123,7 +124,7 @@ function renderChanges(data){
   if(changesNote(data))box.append(node('p',changesNote(data),'field-note'));
   box.hidden=false;
 }
-// Remediation states and counts (Genesis Mesh 1.4.0) as captioned tables of text.
+// Remediation states and counts (Genesis Mesh 1.4.0) and the NA key history (1.5.0) as captioned tables of text.
 function renderTables(view){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   for(const t of view.tables){
@@ -137,7 +138,8 @@ function renderTables(view){
   box.hidden=!box.childElementCount;
 }
 const VIEWS={'remediation-due-queue':queueView,'remediation-get-remediation':stateView,'remediation-record-notice':stateView,
-  'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':statusView};
+  'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':statusView,
+  'key_history-key-history':keyHistoryView,'key_history-succession':successionView};
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
   $('response-table').hidden=true;
