@@ -32,12 +32,25 @@ function validTo(key){
   return time(key.valid_to)+(key.valid_to_enforced===false?' (not enforced)':'');
 }
 
+/**
+ * Who signed a succession, by key ID (1.5.0: the root key, the new key's proof
+ * of possession and the outgoing key's countersignature). Listed, not checked.
+ */
+function signers(s){
+  if(!Array.isArray(s.signatures))return '';
+  return s.signatures.filter(isObject).map(sig=>{
+    const id=text(sig.key_id)||'?';
+    const role=id==='root'?'':id===text(s.new_key_id)?' (new key)':id===text(s.previous_key_id)?' (outgoing key)':'';
+    return id+role;
+  }).join(', ');
+}
+
 const KEYS=[['#',k=>text(k.key_sequence)],['Key ID',k=>text(k.key_id)],['Public key',k=>text(k.public_key)],
   ['Valid from',k=>k.valid_from?time(k.valid_from):'start of the network'],['Succeeded at',k=>time(k.succeeded_at)],
   ['Valid to',validTo]];
 const SUCCESSIONS=[['#',s=>text(s.key_sequence)],['Succession',s=>text(s.succession_id)],['From key',s=>text(s.previous_key_id)],
   ['To key',s=>text(s.new_key_id)],['Effective',s=>time(s.effective_at)],['New key valid to',s=>time(s.new_valid_to)],
-  ['Issued',s=>time(s.issued_at)]];
+  ['Issued',s=>time(s.issued_at)],['Signed by',signers]];
 
 /**
  * `GET /na/key-history`: the keys (with where each stands) and the

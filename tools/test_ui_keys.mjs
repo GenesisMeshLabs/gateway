@@ -7,15 +7,18 @@ const load=async name=>import('data:text/javascript;base64,'+Buffer.from(readFil
 const {keyHistoryView,successionView}=await load('keys.js');
 
 // GET /na/key-history as the authority answers it: the genesis key, a succeeded
-// key signed by the root and the outgoing key, and a pending succession.
+// key and a pending succession, each signed by the root key, the new key (its
+// proof of possession) and the outgoing key.
 const history={
   sovereign_id:'gm-demo',root_public_key:'ROOTKEY0000000000000000000000000000000000000=',handover_seconds:300,
   genesis:{network_name:'gm-demo'},
   successions:[
     {succession_id:'s-2',sovereign_id:'gm-demo',key_sequence:2,previous_key_id:'na-2026',new_key_id:'na-2027',
-      effective_at:'2026-11-01T09:00:00Z',new_valid_to:'2027-11-01T09:00:00Z',issued_at:'2026-10-20T08:00:00Z',signatures:[]},
+      effective_at:'2026-11-01T09:00:00Z',new_valid_to:'2027-11-01T09:00:00Z',issued_at:'2026-10-20T08:00:00Z',
+      signatures:[{key_id:'root',sig:'R'},{key_id:'na-2027',sig:'N'},{key_id:'na-2026',sig:'P'}]},
     {succession_id:'s-3',sovereign_id:'gm-demo',key_sequence:3,previous_key_id:'na-2027',new_key_id:'<b>na-2028</b>',
-      effective_at:'2027-10-01T09:00:00Z',new_valid_to:'2028-10-01T09:00:00Z',issued_at:'2027-09-20T08:00:00Z',signatures:[]},
+      effective_at:'2027-10-01T09:00:00Z',new_valid_to:'2028-10-01T09:00:00Z',issued_at:'2027-09-20T08:00:00Z',
+      signatures:[{key_id:'root',sig:'R'},{key_id:'<b>na-2028</b>',sig:'N'},{key_id:'na-2027',sig:'P'},'not a signature',{sig:'S'}]},
   ],
   keys:[
     {key_sequence:1,key_id:'na-2026',public_key:'KEY1',valid_from:null,succeeded_at:'2026-11-01T09:00:00Z',
@@ -36,8 +39,15 @@ assert.deepEqual(keys.headers,['#','Key ID','Public key','Valid from','Succeeded
 assert.deepEqual(keys.rows[0],['1','na-2026','KEY1','start of the network','2026-11-01 09:00:00 UTC','2026-12-01 00:00:00 UTC (not enforced)','succeeded']);
 assert.deepEqual(keys.rows[1],['2','na-2027','KEY2','2026-11-01 09:00:00 UTC','2027-10-01 09:00:00 UTC','2027-11-01 09:00:00 UTC','signs now; this instance']);
 assert.deepEqual(keys.rows[2],['3','<b>na-2028</b>','KEY3','2027-10-01 09:00:00 UTC','','2028-10-01 09:00:00 UTC','takes effect 2027-10-01 09:00:00 UTC']);
-assert.deepEqual(successions.headers,['#','Succession','From key','To key','Effective','New key valid to','Issued']);
-assert.deepEqual(successions.rows[0],['2','s-2','na-2026','na-2027','2026-11-01 09:00:00 UTC','2027-11-01 09:00:00 UTC','2026-10-20 08:00:00 UTC']);
+assert.deepEqual(successions.headers,['#','Succession','From key','To key','Effective','New key valid to','Issued','Signed by']);
+assert.deepEqual(successions.rows[0],['2','s-2','na-2026','na-2027','2026-11-01 09:00:00 UTC','2027-11-01 09:00:00 UTC','2026-10-20 08:00:00 UTC',
+  'root, na-2027 (new key), na-2026 (outgoing key)']);
+// The signers are listed as text, not checked; a malformed entry is skipped, a missing key ID shown as ?.
+assert.equal(successions.rows[1][7],'root, <b>na-2028</b> (new key), na-2027 (outgoing key), ?');
+// A succession from before the review fixes, or without signatures, still shows.
+view=keyHistoryView({...history,successions:[{...history.successions[0],signatures:undefined}]});
+assert.equal(view.tables[1].rows[0][7],'');
+view=keyHistoryView(history);
 assert.match(view.note,/up to 300 seconds after the next key takes effect/);
 assert.match(view.note,/does not check it: a verifier checks it from the root key it already holds \(the authority names ROOTKEY0+=\)\.$/);
 // Every cell is a string: app.js puts them in text nodes.
