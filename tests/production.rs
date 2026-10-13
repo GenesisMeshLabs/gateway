@@ -1665,6 +1665,21 @@ async fn refusals_of_the_key_history_and_archives_keep_their_code() {
             "succession_invalid_root_signature",
             "key_history-succession",
         ),
+        // A succession must carry the new key's signature (proof of
+        // possession) and may not be issued after it takes effect.
+        (
+            422,
+            "succession_invalid_new_key_signature",
+            "key_history-succession",
+        ),
+        (409, "succession_backdated", "key_history-succession"),
+        // An archive records only a pack this NA built and whose own checks passed.
+        (409, "archive_pack_unknown", "evidence_store-record-archive"),
+        (
+            409,
+            "archive_pack_unverified",
+            "evidence_store-record-archive",
+        ),
     ] {
         let (origin, task) = mock_authority(Router::new().fallback(move || async move {
             (
@@ -1682,6 +1697,45 @@ async fn refusals_of_the_key_history_and_archives_keep_their_code() {
                 .unwrap();
         assert_eq!(body["error"]["code"], code);
         assert_eq!(retry.is_some(), status == 503, "{code}");
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn the_authoritys_readiness_carries_its_na_key_state() {
+    // From 1.5.0 an instance whose key does not sign now (`pending` before
+    // its succession takes effect, `stopped` after) is not ready: its 503
+    // reaches the client with the checks that say why.
+    let pending = json!({"error": {"code": "service_not_ready", "message": "Service is not ready",
+        "details": {"na_key": {"state": "pending", "key_sequence": 2,
+            "signs_from": "2026-11-01T09:00:00+00:00"}, "rate_limiter": "memory"},
+        "request_id": "upstream-1"}});
+    for (status, reply) in [
+        (
+            200,
+            json!({"status": "ready", "na_key": {"state": "signing", "key_sequence": 1}}),
+        ),
+        (503, pending),
+    ] {
+        let served = reply.clone();
+        let (origin, task) = mock_authority(Router::new().route(
+            "/readyz",
+            axum::routing::get(move || {
+                let served = served.clone();
+                async move { (StatusCode::from_u16(status).unwrap(), axum::Json(served)) }
+            }),
+        ))
+        .await;
+        let app = router(service_fixture(&origin));
+        let (relayed_status, body) = call(
+            &app,
+            "/v1/networks/public-agency/services/health-readyz",
+            None,
+            Some(TOKEN),
+        )
+        .await;
+        assert_eq!(relayed_status.as_u16(), status);
+        assert_eq!(body, reply);
         task.abort();
     }
 }
