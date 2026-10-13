@@ -117,7 +117,10 @@ limit; see [Authority services](services.md#observation-submission-rate).
 
 `GET /health` is liveness; `GET /ready` returns `503` when any configured network's
 CRL expires. Stale networks deny verification immediately even before a load
-balancer observes readiness. `GET /metrics` requires an authenticated client with
+balancer observes readiness. The gateway's readiness does not include the
+authorities': read an authority's through the `health-readyz` service
+operation, which from 1.5.0 reports its signing key's state
+(`na_key.state`; see [Authority services](services.md#authority-readiness)). `GET /metrics` requires an authenticated client with
 `metrics: true`. All routes return server-generated `x-request-id`, `no-store`
 and `nosniff` headers.
 

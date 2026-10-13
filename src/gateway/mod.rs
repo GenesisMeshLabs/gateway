@@ -99,6 +99,7 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         .route("/assets/mesh.js", get(mesh::script))
         .route("/assets/tour.js", get(ui::tour_script))
         .route("/assets/remediation.js", get(ui::remediation_script))
+        .route("/assets/keys.js", get(ui::keys_script))
         .route("/assets/style.css", get(ui::style))
         .route("/api", get(handlers::index))
         .route("/v1/services", get(services::catalog))
