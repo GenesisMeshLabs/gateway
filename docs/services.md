@@ -556,14 +556,19 @@ not in the catalog or the OpenAPI document.
 ### In the console
 
 - **Edge nodes**: *List edge nodes* shows one row per node, newest
-  enrolment first: its node public key and sovereign ID; its status
-  (`online` while its newest heartbeat is under five minutes old,
-  `offline`, or `revoked` with when and why); its last heartbeat and
+  enrolment first: its node public key, sovereign ID, executor key and
+  resource prefix; its status (`online` while its newest heartbeat is
+  under five minutes old, `offline`, or `revoked` with when and why); its
+  newest certificate and when it expires; its last heartbeat and
   address; what its agent last reported (the age of its trust snapshot,
   uploads pending with any dead letters, and its version); the usable
   grants its executor key bears and their admitted uses; and its
   break-glass records since it enrolled, with the latest. The `status`
-  field suggests `online`, `offline` and `revoked`. A cell is empty when
+  field suggests `online`, `offline` and `revoked`. A node whose newest
+  certificate has expired shows `certificate expired` rather than
+  `offline`: the authority refuses its heartbeats and renewals until it
+  enrols again, while its agent still acts under the grants it holds (the
+  authority lists such a node as `offline`). A cell is empty when
   the authority has nothing to report: no heartbeat from the agent yet,
   grants off (`EVIDENCE_GRANTS`), or the evidence store off. When a page is
   full, the note gives `next_before`, the node public key of the page's
@@ -586,8 +591,10 @@ These are new in 1.7.0:
 
 | Area | Codes |
 | --- | --- |
-| Edge invites (*Create invite*) | `400 invalid_edge_invite` (one of the two fields without the other), `400 invalid_node_sovereign_id`, `400 invalid_resource_prefix`, `403 insufficient_operator_tier`, `409 edge_requires_evidence_store`, `409 node_sovereign_in_use` |
+| Edge invites (*Create invite*) | `400 invalid_edge_invite` (one of the two fields without the other), `400 invalid_node_sovereign_id`, `400 invalid_resource_prefix` (1 to 256 characters, no control characters, ending with `/` or `:`), `403 insufficient_operator_tier`, `409 edge_requires_evidence_store`, `409 node_sovereign_in_use` (the ID belongs to an active edge node, an outstanding edge invite, another executor key or the subject of an attestation the authority issued), `409 resource_prefix_overlap` (the prefix starts with, or is the start of, an active executor key's or an outstanding edge invite's) |
 | *List edge nodes* | `400 invalid_edge_status`, `400 invalid_page` (also a `before` that names no edge node) |
+| *Renew certificate*, *Heartbeat* | `403 edge_node_retired`: the edge node was revoked, whatever certificate it presents |
+| *Retire executor key* | `409 executor_key_is_edge_node`: an active edge node's key; revoke the node with *Revoke certificate* instead |
 
 The rules behind each code are on the core's operations page *The Edge Agent*.
 
