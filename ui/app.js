@@ -6,6 +6,7 @@ import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, st
 import {keyHistoryView, successionView} from './keys.js';
 import {GRANT_FILTERS, grantChangeDetails, grantStatusView, grantUseView, grantUsesView, grantView, grantsView, issuedView,
   judgementView, resourceHeadView, revocationView, timeTokenView} from './grants.js';
+import {EDGE_FILTERS, edgeNodesView, edgeRevocationView} from './edge.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -103,7 +104,8 @@ async function adminAudience(network,token){
   return key;
 }
 // Values offered for a parameter, by operation.
-const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS},'grants-list-grants':{status:GRANT_FILTERS}};
+const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS},'grants-list-grants':{status:GRANT_FILTERS},
+  'edge-list-edge-nodes':{status:EDGE_FILTERS}};
 const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined',...QUEUE_FILTERS]);
 // A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state,
 // and from 1.4.0 its Stage 3 state and remediation, a page at a time (after_sequence, limit);
@@ -127,7 +129,7 @@ function renderChanges(data){
   if(changesNote(data))box.append(node('p',changesNote(data),'field-note'));
   box.hidden=false;
 }
-// Remediation states and counts (Genesis Mesh 1.4.0), the NA key history (1.5.0) and grants (1.6.0) as
+// Remediation states and counts (Genesis Mesh 1.4.0), the NA key history (1.5.0), grants (1.6.0) and edge nodes (1.7.0) as
 // captioned tables of text. A view's actions (a grant's uses, its revocation) prepare those operations for review.
 function renderTables(view){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
@@ -159,7 +161,8 @@ const VIEWS={'remediation-due-queue':queueView,'remediation-get-remediation':sta
   'key_history-key-history':keyHistoryView,'key_history-succession':successionView,
   'grants-list-grants':grantsView,'grants-get-grant':grantView,'grants-list-grant-uses':grantUsesView,'grants-issue-grant':issuedView,'grants-revoke-grant':revocationView,
   'grants-time-token':timeTokenView,'grants-submit-grant-execution':grantUseView,'evidence_store-resource-head':resourceHeadView,
-  'out_of_band-judge-observation':judgementView,'out_of_band-judge-break-glass':judgementView};
+  'out_of_band-judge-observation':judgementView,'out_of_band-judge-break-glass':judgementView,
+  'edge-list-edge-nodes':edgeNodesView,'admin-revoke-certificate':edgeRevocationView};
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
   $('response-table').hidden=true;

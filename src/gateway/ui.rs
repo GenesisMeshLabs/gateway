@@ -34,6 +34,12 @@ pub(super) async fn grants_script() -> impl IntoResponse {
         include_str!("../../ui/grants.js"),
     )
 }
+pub(super) async fn edge_script() -> impl IntoResponse {
+    (
+        [("content-type", "text/javascript; charset=utf-8")],
+        include_str!("../../ui/edge.js"),
+    )
+}
 pub(super) async fn keys_script() -> impl IntoResponse {
     (
         [("content-type", "text/javascript; charset=utf-8")],

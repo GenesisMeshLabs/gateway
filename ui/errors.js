@@ -62,6 +62,12 @@ export function explainFailure(status,data,headers){
     const id=data?.error?.details?.quarantine_id;
     return 'The bearer key\'s role or resource prefix does not cover the use\'s resource'+(typeof id==='string'&&id?'; the authority kept the use in quarantine '+id:'')+'.';
   }
+  // 1.7.0: edge invites and the edge node list.
+  if(code==='invalid_edge_invite')return 'An edge invite needs both node_sovereign_id and executor_resource_prefix. Send both, or neither for an ordinary invite.';
+  if(code==='invalid_node_sovereign_id')return 'node_sovereign_id must be 1 to 64 characters: lowercase letters, digits, dots, underscores and hyphens, starting with a letter or digit.';
+  if(code==='edge_requires_evidence_store')return 'Edge invites need the authority\'s evidence store and out-of-band recording: its operator turns them on with EVIDENCE_STORE=on and EVIDENCE_OUT_OF_BAND=on.';
+  if(code==='node_sovereign_in_use')return 'An active edge node already has this node_sovereign_id. Revoke that node first, or choose another ID.';
+  if(code==='invalid_edge_status')return 'The edge node list filters by status online, offline or revoked. Leave status empty to list every edge node.';
   return 'Request rejected ('+status+')'+(message?': '+message:'');
 }
 

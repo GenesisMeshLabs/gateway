@@ -101,6 +101,7 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         .route("/assets/remediation.js", get(ui::remediation_script))
         .route("/assets/keys.js", get(ui::keys_script))
         .route("/assets/grants.js", get(ui::grants_script))
+        .route("/assets/edge.js", get(ui::edge_script))
         .route("/assets/style.css", get(ui::style))
         .route("/api", get(handlers::index))
         .route("/v1/services", get(services::catalog))
