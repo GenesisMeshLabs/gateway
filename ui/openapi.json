@@ -4818,6 +4818,14 @@
             }
           },
           {
+            "name": "grant_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -6454,6 +6462,113 @@
             "name": "grant_id",
             "in": "query",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Key-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Nonce",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Admin-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authority response"
+          },
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Scope denied"
+          },
+          "404": {
+            "description": "Not found"
+          },
+          "429": {
+            "description": "Rate limit exceeded"
+          },
+          "502": {
+            "description": "Authority unavailable or invalid response"
+          }
+        }
+      }
+    },
+    "/v1/networks/{network}/services/grants-list-grant-uses": {
+      "get": {
+        "operationId": "grants-list-grant-uses",
+        "summary": "List grant uses",
+        "description": "A grant's use chain, newest first: admitted uses and quarantined uses that continued it. Upstream: /admin/grants/{grant_id}/uses",
+        "tags": [
+          "evidence_store"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "network",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "grant_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
             "schema": {
               "type": "string"
             }

@@ -969,6 +969,7 @@
       "capability",
       "decision_id",
       "entry_kind",
+      "grant_id",
       "limit",
       "outcome",
       "resource_id",
@@ -1232,6 +1233,23 @@
     "query": [],
     "body": null,
     "max_response_bytes": 8388608
+  },
+  {
+    "id": "grants-list-grant-uses",
+    "group": "evidence_store",
+    "name": "List grant uses",
+    "description": "A grant's use chain, newest first: admitted uses and quarantined uses that continued it.",
+    "method": "GET",
+    "upstream_path": "/admin/grants/{grant_id}/uses",
+    "admin": true,
+    "parameters": [
+      "grant_id"
+    ],
+    "query": [
+      "before",
+      "limit"
+    ],
+    "body": null
   },
   {
     "id": "grants-revoke-grant",

@@ -38,9 +38,10 @@ NOT_FORWARDED = {"/admin/evidence/audit-pack": "audit pack: an unpaged bulk expo
 # on the GET operation of the path (the grant list shares its path with issuance).
 SERVICE_QUERY = {
     "/admin/evidence": ["after_sequence", "attestation_id", "capability", "decision_id", "entry_kind",
-                        "limit", "outcome", "resource_id", "since", "until", "vendor_id"],
+                        "grant_id", "limit", "outcome", "resource_id", "since", "until", "vendor_id"],
     "/admin/evidence/export": ["limit", "since_sequence"],
     "/admin/grants": ["before", "bearer_key_id", "limit", "status"],
+    "/admin/grants/{grant_id}/uses": ["before", "limit"],
 }
 # Responses that are not a JSON document, forwarded as text within their own limit.
 RESPONSE_FORMATS = {"/admin/evidence/export": {"response": "ndjson", "max_response_bytes": 8 * 1024 * 1024}}

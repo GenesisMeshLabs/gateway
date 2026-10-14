@@ -1819,6 +1819,22 @@ async fn grant_operations_reach_their_routes_as_evidence_store_operations() {
             "/admin/grants/7f1c2a9e-0000-4000-8000-000000000001",
             true,
         ),
+        // The use chain, a page at a time from a use_sequence.
+        (
+            "grants-list-grant-uses?grant_id=g-1&before=42&limit=100",
+            None,
+            true,
+            "/admin/grants/g-1/uses?before=42&limit=100",
+            true,
+        ),
+        // A grant's uses and revocation in the evidence search (1.6.0).
+        (
+            "evidence_store-search?grant_id=g-1&entry_kind=grant_execution",
+            None,
+            true,
+            "/admin/evidence?entry_kind=grant_execution&grant_id=g-1",
+            true,
+        ),
         (
             "grants-revoke-grant?grant_id=g-1",
             Some(r#"{"reason": "The device was lost"}"#),
@@ -1871,6 +1887,7 @@ async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules
         ("grants-issue-grant", Some("{}")),
         ("grants-list-grants?status=revoked", None),
         ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
         ("grants-revoke-grant?grant_id=g-1", Some("{}")),
     ] {
         let response = forwarded(&app, path, body, false).await;
@@ -1882,6 +1899,8 @@ async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules
         ("grants-list-grants?cursor=x", None),
         ("grants-issue-grant?status=active", Some("{}")),
         ("grants-get-grant?grant_id=g-1&status=active", None),
+        ("grants-list-grant-uses?grant_id=g-1&status=active", None),
+        ("grants-list-grant-uses?before=3", None),
         ("grants-get-grant?grant_id=..", None),
         ("grants-get-grant?grant_id=g%2F..%2F1", None),
         ("grants-revoke-grant?grant_id=g%25", Some("{}")),
@@ -1901,6 +1920,7 @@ async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules
         ("grants-issue-grant", Some("{}")),
         ("grants-list-grants", None),
         ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
         ("grants-revoke-grant?grant_id=g-1", Some("{}")),
     ] {
         let response = forwarded(&app, path, body, true).await;
@@ -1919,6 +1939,7 @@ async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules
         ("grants-issue-grant", Some("{}")),
         ("grants-list-grants", None),
         ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
         ("grants-revoke-grant?grant_id=g-1", Some("{}")),
         ("grants-time-token", Some("{}")),
         ("grants-submit-grant-execution", Some("{}")),
@@ -1947,6 +1968,12 @@ async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules
             Some(&eight),
         ),
         ("grants-get-grant", true, json!([]), Some(&eight)),
+        (
+            "grants-list-grant-uses",
+            true,
+            json!(["before", "limit"]),
+            None,
+        ),
         ("grants-revoke-grant", true, json!([]), None),
         ("grants-time-token", false, json!([]), None),
         ("grants-submit-grant-execution", false, json!([]), None),
@@ -1990,6 +2017,33 @@ async fn refusals_of_grant_operations_keep_their_code_and_details() {
             "grants-get-grant?grant_id=g-9",
             None,
         ),
+        // The list's cursor is a grant ID, the uses' a use_sequence: an unknown one is refused.
+        (
+            400,
+            json!({"code": "invalid_page", "message": "before must be the ID of a grant (next_before)"}),
+            "grants-list-grants?before=g-0",
+            None,
+        ),
+        (
+            400,
+            json!({"code": "invalid_page", "message": "before must be a use_sequence (next_before)"}),
+            "grants-list-grant-uses?grant_id=g-1&before=x",
+            None,
+        ),
+        // What a grant rests on changed during its issuance: retry.
+        (
+            409,
+            json!({"code": "grant_issuance_conflict", "message": "retry"}),
+            "grants-issue-grant",
+            Some("{}"),
+        ),
+        // A stored grant that no longer verifies under the NA's signature.
+        (
+            503,
+            json!({"code": "grant_store_integrity_failed", "message": "not used"}),
+            "grants-get-grant?grant_id=g-1",
+            None,
+        ),
         (
             409,
             json!({"code": "grant_expired", "message": "refused"}),
@@ -2005,6 +2059,13 @@ async fn refusals_of_grant_operations_keep_their_code_and_details() {
         (
             409,
             json!({"code": "grant_use_conflict", "message": "refused", "details": {"quarantine_id": "q-2"}}),
+            "grants-submit-grant-execution",
+            Some("{}"),
+        ),
+        // The bearer key's role or resource prefix does not cover the use's resource.
+        (
+            422,
+            json!({"code": "grant_use_out_of_scope", "message": "refused", "details": {"quarantine_id": "q-3"}}),
             "grants-submit-grant-execution",
             Some("{}"),
         ),
