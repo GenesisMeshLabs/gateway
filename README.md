@@ -23,7 +23,7 @@ canonical JSON and signature compatibility.
 - Responsive endpoint explorer, scoped network data and OpenAPI 3.1.
 - Public demo access (`GET /v1/demo`, read and verify only, enforced at startup)
   and a guided tour of portable trust in the console.
-- 108 scoped Network Authority operations: every SDK service area, boundary
+- 109 scoped Network Authority operations: every SDK service area, boundary
   policies, the execution evidence store, changes outside the controlled path,
   remediation and reviews, the NA key history and key succession, archives,
   pre-issued grants, enrollment, discovery, treaties and administration, with browser-side

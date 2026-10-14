@@ -1,6 +1,6 @@
 # Authority services
 
-The console exposes 108 explicitly allowed authority operations in addition to
+The console exposes 109 explicitly allowed authority operations in addition to
 eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
@@ -10,7 +10,7 @@ describe each HTTP method, resource parameter, query field and request example.
 | Attestations | Issue, list, inspect, verify, revoke and recognition policy |
 | Boundary | Decide and verify |
 | Boundary policy (`boundary_policy`) | Validate, publish, list, activate, deactivate, history and verify policies; policy-aware evaluation |
-| Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now); remediation records, the due queue, notices and reviews (Genesis Mesh 1.4.0, see [below](#remediation-reviews-and-notification)); archives (list, record) and retention through an archived position (1.5.0, see [below](#key-history-archives-and-audit-packs)); pre-issued grants (issue, list, read, revoke) and a holder's time tokens and grant uses (1.6.0, see [below](#pre-issued-grants)) |
+| Evidence store (`evidence_store`) | Submit executor-signed evidence, search, status, verify, resource heads and histories, vendor histories, JSON Lines export, executor keys, retention and signed store anchors (list, anchor now); remediation records, the due queue, notices and reviews (Genesis Mesh 1.4.0, see [below](#remediation-reviews-and-notification)); archives (list, record) and retention through an archived position (1.5.0, see [below](#key-history-archives-and-audit-packs)); pre-issued grants (issue, list, read, a grant's use chain, revoke), a holder's time tokens and grant uses, and a search for a grant's uses and revocation (1.6.0, see [below](#pre-issued-grants)) |
 | Changes outside the controlled path (`out_of_band`) | Submit observations (one or a batch) and break-glass records, judge them, a resource's changes with how each was governed and its state (shown as a table; paged with `after_sequence` and `limit` from 1.4.0), operator key holders and holder changes (Genesis Mesh 1.3.0) |
 | Disclosure | Commitment, membership proof, nullifier and verification |
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
@@ -397,7 +397,7 @@ until the authority runs with `EVIDENCE_GRANTS=on` (which needs
 
 ### Operations
 
-The six operations are in the `evidence_store` group. A grant, its uses and
+The seven operations are in the `evidence_store` group. A grant, its uses and
 its revocation are evidence store records, a grant's bearer is a registered
 executor key, and holders submit their uses there as controllers submit
 execution evidence.
@@ -407,9 +407,13 @@ execution evidence.
 | Issue grant | `POST /admin/grants` | Operator, privileged tier |
 | List grants | `GET /admin/grants` (`status`, `bearer_key_id`, `limit` 1 to 500, `before`) | Operator, read tier |
 | Get grant | `GET /admin/grants/{grant_id}` | Operator, read tier |
+| List grant uses | `GET /admin/grants/{grant_id}/uses` (`limit` 1 to 500, `before`) | Operator, read tier |
 | Revoke grant | `POST /admin/grants/{grant_id}/revoke` | Operator, privileged tier |
 | Time token | `POST /grants/time-tokens` | The holder: a request its bearer key signs, no operator headers |
 | Submit grant execution | `POST /evidence/grant-executions` | The holder: a use its bearer key signs, no operator headers |
+
+*Search* (evidence store) also takes `grant_id` from 1.6.0: a grant's uses
+and its revocation.
 
 The gateway's `authority_admin` flag only lets a client forward signed
 operator requests; the authority checks each key's tier. A holder's request
@@ -423,8 +427,9 @@ The request examples hold placeholders that the authority refuses unedited:
 the bearer's executor key ID and the attestation the grant rests on
 (`attestation_id`, or an `agreement` instead). *Issue grant* fills
 `valid_from` with a minute ago and `valid_until` with an hour from now; a
-grant lasts at most 24 hours. A revocation's `reason` is free text, recorded as the revocation's
-`detail`; the revocation's own reason is `operator`.
+grant lasts at most 24 hours. The `reason` sent to *Revoke grant* is free
+text, stored as the revocation's `detail`; the revocation's own `reason` is
+`operator`.
 
 ### In the console
 
@@ -432,17 +437,26 @@ grant lasts at most 24 hours. A revocation's `reason` is free text, recorded as 
   status (`active`, `scheduled`, `exhausted`, `expired` or `revoked`), bearer
   key, capabilities, basis, validity, uses of its budget, who issued it and
   when it was revoked and why. The `status` field suggests `active`,
-  `expired` and `revoked`. When a page is full, the note gives
-  `next_before`; send it as `before` for the next page.
-- **One grant**: *Get grant* shows the grant's uses and its remaining
-  budget, the uses allowed per time token, the policy versions it was
-  checked against, its parameter envelope (each parameter, whether it is
-  required, and its allowed values or range) and its revocation, if any.
-  Each use is a `grant_execution` entry in the evidence store; a resource's
-  changes list the uses that changed it.
-- **Revoking**: a grant that is not revoked offers *Prepare revocation of
-  this grant*. It selects *Revoke grant* with the grant's ID filled in and
-  sends nothing: review the reason, then sign and send it. *Revoke grant*
+  `expired` and `revoked`; `active` also lists the grants that say
+  `scheduled` or `exhausted`. Grants come newest first by issue time, then
+  ID. When a page is full, the note gives `next_before`, the ID of the
+  page's last grant; send it as `before` for the next page.
+- **One grant**: *Get grant* shows the uses admitted of its budget, the
+  remaining budget, the length of its use chain (admitted and quarantined
+  uses; the budget counts admitted uses only), the uses allowed per time
+  token, the policy versions it was checked against, its parameter envelope
+  (each parameter, whether it is required, and its allowed values or range)
+  and its revocation, if any.
+- **Uses**: *List grant uses* shows the use chain, newest first: each use's
+  position, ID and state (`admitted`, or `quarantined` with the code it was
+  refused with: a refused use that still continued the chain), when it was
+  executed and recorded, its resource and the position the authority gave
+  it there, and its outcome. When a page is full, the note gives
+  `next_before`, a use's position; send it as `before`.
+- **Preparing**: a grant offers *Prepare the list of its uses* and, unless
+  it is revoked, *Prepare revocation of this grant*. Each selects the
+  operation with the grant's ID filled in and sends nothing: review it,
+  then sign and send it. *Revoke grant*
   shows the signed revocation. Uses executed from its time on are refused,
   and holders stop using the grant once their revocation feed lists it.
 - **Issuing**: *Issue grant* shows the signed grant, its envelope and the
@@ -452,7 +466,9 @@ grant lasts at most 24 hours. A revocation's `reason` is free text, recorded as 
   gave it in its resource's chain: a use with a resource becomes the
   resource's head, which the next execution evidence links to.
 - **Resource heads and changes**: *Resource head* shows the position and
-  digest the next record links to; from 1.6.0 it may be a grant use. In
+  digest the next record links to, and from 1.6.0 what that record is:
+  execution evidence, a grant use or the latest retention checkpoint, with
+  its record ID. In
   *Resource changes*, a use is a change of kind `grant_execution`, governed by
   `grant`, with its grant and use number in the details. An observation that
   matched a use says so, and a refused use kept in quarantine is marked as a
@@ -464,8 +480,12 @@ grant lasts at most 24 hours. A revocation's `reason` is free text, recorded as 
 - **Status**: *Status* (evidence store) adds the grants issued, active and
   revoked and the uses admitted, or says that grants are off.
 
-The console shows grants and does not verify them: the SDKs and verifiers
-check a grant's signature against the authority's key history.
+The console names each revocation reason in words: by an operator, or by the
+authority because the grant's attestation was revoked, a policy it was
+checked against was deactivated, a policy activated since may deny it, its
+bearer key was retired, or (`agreement_untrusted`) a treaty revocation left
+its agreement untrusted. It shows grants and does not verify them: the SDKs
+and verifiers check a grant's signature against the authority's key history.
 
 ### Refusals
 
@@ -477,10 +497,11 @@ details. These are new in 1.6.0:
 | Every grant operation | `404 grants_disabled` while grants are off |
 | Issuing (`400`) | `unexpected_field`, `ambiguous_basis`, `invalid_grant_validity`, `invalid_grant_request`, `grant_limit_exceeded`, `invalid_grant_envelope`, `invalid_agreement` |
 | Issuing (`422`) | `grant_bearer_key_unknown`, `grant_bearer_key_not_executor`, `grant_bearer_key_retired`, `agreement_untrusted`; then the first issuance refusal, from `grant_basis_invalid` to `grant_gate_may_deny`, with every problem in `error.details.problems` |
-| Reading and revoking | `400 invalid_grant_filter`, `400 invalid_page`, `400 invalid_grant_revocation`, `404 grant_not_found`, `409 grant_already_revoked` |
+| Issuing (`409`) | `grant_issuance_conflict`: what the grant rests on changed while it was issued; send it again |
+| Reading and revoking | `400 invalid_grant_filter`, `400 invalid_page` (also a `before` that names no grant, or is not a use's position), `400 invalid_grant_revocation`, `404 grant_not_found`, `409 grant_already_revoked` |
 | Time tokens | `400 invalid_time_token_request`; `422 time_token_request_malformed`, `time_token_request_invalid_signature`, `time_token_request_stale`; `409 grant_bearer_key_retired`, `grant_revoked`, `grant_expired`, `grant_budget_exhausted`, `time_token_request_behind`, `time_token_request_mismatch` |
-| Uses | `400 invalid_grant_use`; the use rejections from `grant_use_malformed` to `grant_revoked` (`422`, and `409 grant_use_conflict`), with `error.details.quarantine_id` when the authority keeps the use in quarantine |
-| Store | `503 evidence_store_unavailable`, relayed with `Retry-After` |
+| Uses | `400 invalid_grant_use`; the use rejections from `grant_use_malformed` to `grant_revoked` (`422`, and `409 grant_use_conflict`), among them `422 grant_use_out_of_scope` (the bearer key's role or resource prefix does not cover the use's resource), with `error.details.quarantine_id` when the authority keeps the use in quarantine |
+| Store | `503 evidence_store_unavailable`; `503 grant_store_integrity_failed` from any grant operation, when a grant the authority holds no longer verifies under its signature. Both are relayed with `Retry-After` |
 
 The rules behind each code are on the core's *Pre-Issued Grants* operations
 page.
@@ -490,7 +511,7 @@ page.
 - *List grants*, *Get grant* and *Issue grant* are forwarded up to 8 MiB: a
   page holds up to 500 summaries of up to 16 capabilities each, and a grant's
   envelope up to 64 parameters of up to 256 values each. The other grant
-  operations keep the default 2 MiB.
+  operations keep the default 2 MiB; a page of uses holds at most 500.
 - A holder's time tokens and uses count against the authority's evidence
   submission limit (`NA_RATE_LIMIT_EVIDENCE_PER_MINUTE`), which is per client
   address: all of the gateway's clients share it, as they share the
