@@ -4,8 +4,8 @@ import {adminRequestFor, operatorHeaders} from './signing.js';
 import {explainFailure, requestIds} from './errors.js';
 import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, statusView} from './remediation.js';
 import {keyHistoryView, successionView} from './keys.js';
-import {GRANT_FILTERS, grantChangeDetails, grantStatusView, grantUseView, grantView, grantsView, issuedView, judgementView,
-  resourceHeadView, revocationView, timeTokenView} from './grants.js';
+import {GRANT_FILTERS, grantChangeDetails, grantStatusView, grantUseView, grantUsesView, grantView, grantsView, issuedView,
+  judgementView, resourceHeadView, revocationView, timeTokenView} from './grants.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -128,7 +128,7 @@ function renderChanges(data){
   box.hidden=false;
 }
 // Remediation states and counts (Genesis Mesh 1.4.0), the NA key history (1.5.0) and grants (1.6.0) as
-// captioned tables of text. A view's action (a grant's revocation) prepares that operation for review.
+// captioned tables of text. A view's actions (a grant's uses, its revocation) prepare those operations for review.
 function renderTables(view){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   for(const t of view.tables){
@@ -139,7 +139,7 @@ function renderTables(view){
     box.append(table);
   }
   if(view.note)box.append(node('p',view.note,'field-note'));
-  if(view.action){const b=node('button',view.action.label,'button secondary');b.type='button';b.addEventListener('click',()=>prepare(view.action));box.append(b);}
+  for(const action of view.actions||[]){const b=node('button',action.label,'button secondary');b.type='button';b.addEventListener('click',()=>prepare(action));box.append(b);}
   box.hidden=!box.childElementCount;
 }
 // Select an operation with its parameters filled in, for the operator to review, sign and send: nothing is sent here.
@@ -157,7 +157,7 @@ const both=(a,b)=>data=>{const x=a(data),y=b(data);return {tables:[...x.tables,.
 const VIEWS={'remediation-due-queue':queueView,'remediation-get-remediation':stateView,'remediation-record-notice':stateView,
   'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':both(statusView,grantStatusView),
   'key_history-key-history':keyHistoryView,'key_history-succession':successionView,
-  'grants-list-grants':grantsView,'grants-get-grant':grantView,'grants-issue-grant':issuedView,'grants-revoke-grant':revocationView,
+  'grants-list-grants':grantsView,'grants-get-grant':grantView,'grants-list-grant-uses':grantUsesView,'grants-issue-grant':issuedView,'grants-revoke-grant':revocationView,
   'grants-time-token':timeTokenView,'grants-submit-grant-execution':grantUseView,'evidence_store-resource-head':resourceHeadView,
   'out_of_band-judge-observation':judgementView,'out_of_band-judge-break-glass':judgementView};
 async function send(){

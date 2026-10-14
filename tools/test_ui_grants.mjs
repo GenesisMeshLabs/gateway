@@ -1,13 +1,14 @@
 // The console's grant views (Genesis Mesh 1.6.0): the grant list, one grant
-// with its uses, remaining budget, envelope and revocation, the revocation
-// action, an issued or revoked grant, a time token, a grant use as its
+// with its use chain, remaining budget, envelope and revocation, its uses
+// (admitted or quarantined), the uses and revocation actions, an issued or
+// revoked grant, a time token, a grant use as its
 // resource's head, grant uses in a resource's changes and judgements governed
 // by a grant. Their input is authority data, rendered as text only.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const load=async name=>import('data:text/javascript;base64,'+Buffer.from(readFileSync(new URL('../ui/'+name,import.meta.url),'utf8')).toString('base64'));
-const {GRANT_FILTERS,governedBy,grantChangeDetails,grantStatusView,grantUseView,grantView,grantsView,issuedView,judgementView,
-  resourceHeadView,revocationView,timeTokenView}=await load('grants.js');
+const {GRANT_FILTERS,REVOCATION_REASONS,governedBy,grantChangeDetails,grantStatusView,grantUseView,grantUsesView,grantView,grantsView,
+  issuedView,judgementView,resourceHeadView,revocationReason,revocationView,timeTokenView}=await load('grants.js');
 const {explainFailure}=await load('errors.js');
 
 const strings=view=>{for(const t of view.tables)for(const r of t.rows){assert.equal(r.length,t.headers.length);for(const c of r)assert.equal(typeof c,'string');}};
@@ -27,11 +28,12 @@ assert.deepEqual(view.tables[0].headers,['Grant','Status','Bearer key','Capabili
 assert.deepEqual(view.tables[0].rows[0],['g-1','active','site-7-device','secret.rotate, secret.disable','attestation att-1',
   '2026-06-01 08:00:00 UTC to 2026-06-01 12:00:00 UTC','1 of 3','2026-06-01 07:59:00 UTC by operator-1','']);
 assert.deepEqual(view.tables[0].rows[1].slice(0,2),['<img src=x onerror=alert(1)>','revoked']);
-assert.equal(view.tables[0].rows[1][8],'2026-06-01 09:00:00 UTC (attestation revoked)');
+assert.equal(view.tables[0].rows[1][8],'2026-06-01 09:00:00 UTC (its attestation was revoked)');
 assert.equal(view.note,'');
 strings(view);
-view=grantsView({grants:[active],next_before:'2026-06-01T07:59:00.123456+00:00'});
-assert.equal(view.note,'More on the next page: send again with before = 2026-06-01T07:59:00.123456+00:00');
+// The list's cursor is the ID of the page's last grant (ordered by issued_at, then grant_id).
+view=grantsView({grants:[active],next_before:'g-1'});
+assert.equal(view.note,'More on the next page: send again with before = g-1');
 assert.deepEqual(grantsView({grants:[],next_before:null}),{tables:[],note:'No grants match.'});
 
 // GET /admin/grants/<id>: the grant, its uses and remaining budget, its envelope, the policies it was checked against.
@@ -40,28 +42,32 @@ const grant={grant_id:'g-1',bearer_key_id:'site-7-device',max_uses:3,max_uses_pe
   lifetime_days:{required:true,number_range:{number_type:'integer',minimum:1,maximum:60,exclusive_minimum:false,exclusive_maximum:true}},
   scopes:{required:false,subset_of:['read','write']},
   ratio:{required:true,number_range:{number_type:'number',minimum:0.5,exclusive_minimum:true,exclusive_maximum:false}}}};
-const detail={...active,remaining_uses:2,grant,policy_versions:[{policy_id:'rotation',version:3}],revocation:null};
+const detail={...active,remaining_uses:2,chain_length:2,grant,policy_versions:[{policy_id:'rotation',version:3}],revocation:null};
 view=grantView(detail);
 assert.deepEqual(view.tables.map(t=>t.caption),['Grant g-1','Parameter envelope (4)']);
 const [summary,envelope]=view.tables;
 assert.deepEqual(summary.rows,[['Status','active'],['Bearer','site-7-device (sovereign-b)'],['Capabilities','secret.rotate, secret.disable'],
-  ['Basis','attestation att-1'],['Valid','2026-06-01 08:00:00 UTC to 2026-06-01 12:00:00 UTC'],['Uses','1 of 3'],['Remaining uses','2'],
-  ['Uses per time token','2'],['Issued','2026-06-01 07:59:00 UTC by operator-1'],['Store position','41'],['Checked against','rotation v3']]);
+  ['Basis','attestation att-1'],['Valid','2026-06-01 08:00:00 UTC to 2026-06-01 12:00:00 UTC'],['Uses admitted','1 of 3'],['Remaining uses','2'],
+  ['Use chain','2 (1 quarantined)'],['Uses per time token','2'],['Issued','2026-06-01 07:59:00 UTC by operator-1'],['Store position','41'],['Checked against','rotation v3']]);
 // Envelope values keep their types apart: "eu-west" is text, 1 and true are not.
 assert.deepEqual(envelope.rows,[['lifetime_days','yes','integer >= 1 and < 60'],['ratio','yes','number > 0.5'],
   ['region','yes','one of: eu-west, 1, true, null'],['scopes','no','any of: read, write']]);
-assert.match(view.note,/grant_execution entry/);
-// A grant that is not revoked offers its revocation, prepared for review: an operation and its parameters, nothing sent.
-assert.deepEqual(view.action,{operation:'grants-revoke-grant',parameters:{grant_id:'g-1'},label:'Prepare revocation of this grant'});
+assert.match(view.note,/admitted or quarantined; the budget counts admitted uses only\.$/);
+// A grant offers its uses and, unless revoked, its revocation, prepared for review: an operation and its parameters, nothing sent.
+assert.deepEqual(view.actions,[{operation:'grants-list-grant-uses',parameters:{grant_id:'g-1'},label:'Prepare the list of its uses'},
+  {operation:'grants-revoke-grant',parameters:{grant_id:'g-1'},label:'Prepare revocation of this grant'}]);
+// A chain without quarantined uses, or an older authority without chain_length.
+assert.equal(grantView({...detail,chain_length:1}).tables[0].rows[7][1],'1');
+assert.equal(grantView({...detail,chain_length:undefined}).tables[0].rows[7][1],'');
 strings(view);
 
 const revocation={revocation_id:'rv-1',grant_id:'g-1',grant_digest:'d'.repeat(64),reason:'operator',detail:'The device was lost',
   revoked_by:'operator-2',revoked_at:'2026-06-01T09:00:00Z',issuer_sovereign_id:'sovereign-c',issued_by:'na-key',signature:{key_id:'na-key',sig:'S'}};
 view=grantView({...detail,status:'revoked',revoked_at:revocation.revoked_at,revocation_reason:'operator',remaining_uses:0,revocation});
 assert.deepEqual(view.tables.map(t=>t.caption),['Grant g-1','Parameter envelope (4)','Revocation']);
-assert.deepEqual(view.tables[2].rows,[['Revoked at','2026-06-01 09:00:00 UTC'],['Reason','operator'],['Detail','The device was lost'],
+assert.deepEqual(view.tables[2].rows,[['Revoked at','2026-06-01 09:00:00 UTC'],['Reason','operator: by an operator'],['Detail','The device was lost'],
   ['Revoked by','operator-2'],['Revocation','rv-1']]);
-assert.equal(view.action,undefined);
+assert.deepEqual(view.actions.map(a=>a.operation),['grants-list-grant-uses']);
 assert.match(view.note,/Uses executed from the revocation on are refused\./);
 // A grant without an envelope shows no envelope table.
 assert.deepEqual(grantView({...detail,grant:{...grant,parameter_envelope:{}}}).tables.map(t=>t.caption),['Grant g-1']);
@@ -99,10 +105,49 @@ assert.deepEqual(view.tables[0].rows.slice(7,9),[['Status','duplicate'],['Resour
 view=grantUseView({entry:{store_sequence:61},payload:{...use,resource_id:undefined,resource_action:undefined},status:'recorded',resource_sequence:null});
 assert.equal(view.note,'The use names no resource, so it takes no place in a resource\'s chain.');
 
-// GET /admin/evidence/resource-heads/<id>: the head may be a grant use.
-view=resourceHeadView({resource_id:'kv:vault/zoë',resource_sequence:7,record_digest:'a'.repeat(64)});
-assert.deepEqual(view.tables[0].rows,[['Position','7'],['Record digest','a'.repeat(64)]]);
-assert.match(view.note,/the head may be a grant use/);
+// Revocation reasons, agreement_untrusted (a treaty revocation left the agreement untrusted) among them.
+assert.deepEqual(Object.keys(REVOCATION_REASONS),['operator','attestation_revoked','policy_deactivated','policy_activated',
+  'bearer_key_retired','agreement_untrusted']);
+assert.equal(revocationReason('agreement_untrusted'),'its agreement is no longer trusted');
+assert.equal(revocationReason('a_later_reason'),'a later reason');
+view=grantsView({grants:[{...revoked,revocation_reason:'agreement_untrusted',basis_kind:'agreement'}],next_before:null});
+assert.equal(view.tables[0].rows[0][8],'2026-06-01 09:00:00 UTC (its agreement is no longer trusted)');
+assert.deepEqual(revocationView({grant_id:'g-1',revocation:{...revocation,reason:'agreement_untrusted',revoked_by:null,detail:null}})
+  .tables[0].rows[1],['Reason','agreement_untrusted: its agreement is no longer trusted']);
+
+// GET /admin/grants/<id>/uses: the use chain, newest first, admitted or quarantined, with the next page's use_sequence.
+const uses={grant_id:'g-1',uses:[
+  {use_id:'00000000-0000-4000-8000-000000000003',use_sequence:3,state:'quarantined',rejection_code:'grant_use_out_of_scope',
+    executed_at:'2026-06-01T08:40:00Z',recorded_at:'2026-06-01T09:10:00.000000+00:00',store_sequence:70,resource_id:'kv:other/x',
+    resource_sequence:null,outcome:'success'},
+  {use_id:'00000000-0000-4000-8000-000000000002',use_sequence:2,state:'admitted',rejection_code:null,
+    executed_at:'2026-06-01T08:30:00Z',recorded_at:'2026-06-01T09:10:00Z',store_sequence:60,resource_id:'kv:vault/zoë',
+    resource_sequence:7,outcome:'success'},'not a use'],next_before:2};
+view=grantUsesView(uses);
+assert.equal(view.tables[0].caption,'Uses of grant g-1 (2)');
+assert.deepEqual(view.tables[0].headers,['#','Use','State','Refused as','Executed','Recorded','Resource','Resource position','Store position','Outcome']);
+assert.deepEqual(view.tables[0].rows[0],['3','00000000-0000-4000-8000-000000000003','quarantined','grant_use_out_of_scope',
+  '2026-06-01 08:40:00 UTC','2026-06-01 09:10:00 UTC','kv:other/x','','70','success']);
+assert.deepEqual(view.tables[0].rows[1].slice(2,4),['admitted','']);
+assert.deepEqual(view.tables[0].rows[1].slice(7,9),['7','60']);
+assert.match(view.note,/^A quarantined use was refused but continued the chain: .*budget\. More on the next page: send again with before = 2$/);
+strings(view);
+assert.deepEqual(grantUsesView({grant_id:'g-1',uses:[],next_before:null}),{tables:[],note:'No uses yet.'});
+assert.equal(grantUsesView({...uses,uses:[uses.uses[1]],next_before:null}).note,'');
+
+// GET /admin/evidence/resource-heads/<id>: what the head is (1.6.0: entry_kind and record_id).
+view=resourceHeadView({resource_id:'kv:vault/zoë',resource_sequence:7,record_digest:'a'.repeat(64),entry_kind:'grant_execution',
+  record_id:'00000000-0000-4000-8000-000000000002'});
+assert.deepEqual(view.tables[0].rows,[['Position','7'],['Record digest','a'.repeat(64)],['Record','a grant use 00000000-0000-4000-8000-000000000002']]);
+assert.match(view.note,/The head is a grant use, at the position the authority gave it/);
+view=resourceHeadView({resource_id:'r',resource_sequence:3,record_digest:'b'.repeat(64),entry_kind:'execution',record_id:'ev-3'});
+assert.deepEqual(view.tables[0].rows[2],['Record','execution evidence ev-3']);
+assert.equal(view.note,'The next record of this resource links to this digest.');
+view=resourceHeadView({resource_id:'r',resource_sequence:9,record_digest:'c'.repeat(64),entry_kind:'retention_checkpoint',record_id:null});
+assert.deepEqual(view.tables[0].rows[2],['Record','the latest retention checkpoint']);
+assert.match(view.note,/Retention removed/);
+// An authority before 1.6.0 names neither: no Record row.
+assert.equal(resourceHeadView({resource_id:'r',resource_sequence:1,record_digest:'d'.repeat(64)}).tables[0].rows.length,2);
 
 // A resource's changes: a grant use names its grant and use; an observation it matched says so; a refused use too.
 assert.equal(grantChangeDetails({kind:'grant_execution',governed_by:'grant',grant_id:'g-1',use_sequence:2,state:'recorded'}),'grant g-1, use 2');
@@ -134,12 +179,18 @@ assert.deepEqual(grantStatusView({evidence_store:'on'}),{tables:[],note:''});
 
 // Anything else shows nothing.
 for(const data of [undefined,null,'text',[],{error:{code:'grants_disabled'}},{grants:'none'}]){
-  for(const f of [grantsView,grantView,issuedView,revocationView,timeTokenView,grantUseView,resourceHeadView,judgementView])
+  for(const f of [grantsView,grantView,grantUsesView,issuedView,revocationView,timeTokenView,grantUseView,resourceHeadView,judgementView])
     assert.deepEqual(f(data),{tables:[],note:''},f.name);
 }
 
 // Grants off: every grant route answers 404 grants_disabled, explained.
 assert.match(explainFailure(404,{error:{code:'grants_disabled',message:'grants are off'}},{}),/^Pre-issued grants are off on this authority/);
+// The codes the review fixes added: a conflict to retry, a grant that no longer verifies, a use outside the key's scope.
+assert.match(explainFailure(409,{error:{code:'grant_issuance_conflict',message:'retry'}},{}),/Send the issuance again\.$/);
+assert.match(explainFailure(503,{error:{code:'grant_store_integrity_failed',message:'x'}},{'retry-after':'30'}),
+  /no longer verifies under its signature.*Wait 30 seconds before retrying\.$/);
+assert.equal(explainFailure(422,{error:{code:'grant_use_out_of_scope',message:'x',details:{quarantine_id:'q-1'}}},{}),
+  'The bearer key\'s role or resource prefix does not cover the use\'s resource; the authority kept the use in quarantine q-1.');
 
 // The catalog: grant operations are evidence-store operations; the authority checks each operator route's tier.
 const ops=JSON.parse(readFileSync(new URL('../ui/services.json',import.meta.url),'utf8'));
@@ -148,11 +199,14 @@ assert.deepEqual(rows,{
   'grants-issue-grant':['evidence_store',true,'POST','/admin/grants'],
   'grants-list-grants':['evidence_store',true,'GET','/admin/grants'],
   'grants-get-grant':['evidence_store',true,'GET','/admin/grants/{grant_id}'],
+  'grants-list-grant-uses':['evidence_store',true,'GET','/admin/grants/{grant_id}/uses'],
   'grants-revoke-grant':['evidence_store',true,'POST','/admin/grants/{grant_id}/revoke'],
   'grants-time-token':['evidence_store',false,'POST','/grants/time-tokens'],
   'grants-submit-grant-execution':['evidence_store',false,'POST','/evidence/grant-executions'],
 });
 assert.deepEqual(ops.find(o=>o.id==='grants-list-grants').query,['bearer_key_id','before','limit','status']);
+assert.deepEqual(ops.find(o=>o.id==='grants-list-grant-uses').query,['before','limit']);
+assert.ok(ops.find(o=>o.id==='evidence_store-search').query.includes('grant_id'));
 
 // Authority text never reaches markup, and app.js routes each answer to its view.
 for(const name of ['app.js','grants.js','errors.js']){
@@ -160,7 +214,7 @@ for(const name of ['app.js','grants.js','errors.js']){
   assert.doesNotMatch(source,/innerHTML|outerHTML|insertAdjacentHTML|document\.write/,name);
 }
 const app=readFileSync(new URL('../ui/app.js',import.meta.url),'utf8');
-for(const route of ["'grants-list-grants':grantsView","'grants-get-grant':grantView","'grants-revoke-grant':revocationView",
+for(const route of ["'grants-list-grants':grantsView","'grants-get-grant':grantView","'grants-list-grant-uses':grantUsesView","'grants-revoke-grant':revocationView",
   "'grants-submit-grant-execution':grantUseView","'evidence_store-resource-head':resourceHeadView","'out_of_band-judge-observation':judgementView",
   "grantChangeDetails(c)","'grants-list-grants':{status:GRANT_FILTERS}"])
   assert.ok(app.includes(route),route);

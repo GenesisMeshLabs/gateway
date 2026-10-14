@@ -1,7 +1,8 @@
 // Pre-issued grants (Genesis Mesh 1.6.0, Stage 5) in the console: the grants
-// an authority issued, one grant with its uses, remaining budget and
-// revocation, an issued or revoked grant, a time token, a grant use and the
-// resource head it becomes, and judgements of changes a grant governed. Pure
+// an authority issued, one grant with its use chain, remaining budget and
+// revocation, the chain use by use (admitted or quarantined), an issued or
+// revoked grant, a time token, a grant use and the resource head it becomes,
+// and judgements of changes a grant governed. Pure
 // functions of the authority's JSON that return tables of plain strings, so
 // tools/test_ui_grants.mjs can check them without a browser; app.js renders
 // them as text nodes. The console shows grants; it does not verify them.
@@ -20,6 +21,13 @@ function time(value){
 /** Values of the grant list's `status` filter. */
 export const GRANT_FILTERS=['active','expired','revoked'];
 
+/** Why a grant was revoked: by an operator, or by the authority when what the grant rests on changed. */
+export const REVOCATION_REASONS={operator:'by an operator',attestation_revoked:'its attestation was revoked',
+  policy_deactivated:'a policy it was checked against was deactivated',policy_activated:'a policy activated since may deny it',
+  bearer_key_retired:'its bearer key was retired',agreement_untrusted:'its agreement is no longer trusted'};
+/** A revocation reason in words; the code itself for one this console does not know. */
+export function revocationReason(code){return REVOCATION_REASONS[code]??words(code);}
+
 /** A list of strings, comma separated (anything else in it is left out). */
 function list(v){return Array.isArray(v)?v.filter(s=>typeof s==='string').join(', '):'';}
 /** An envelope value as JSON shows it, so `"1"`, `1` and `true` stay apart; a string as itself. */
@@ -30,7 +38,7 @@ function basis(g){return [g.basis_kind,g.basis_id].filter(v=>typeof v==='string'
 function validity(g){return g.valid_from||g.valid_until?time(g.valid_from)+' to '+time(g.valid_until):'';}
 function uses(g){return Number.isSafeInteger(g.uses)&&Number.isSafeInteger(g.max_uses)?g.uses+' of '+g.max_uses:'';}
 function issued(g){return time(g.issued_at)+(g.issued_by_operator?' by '+g.issued_by_operator:'');}
-function revoked(g){return g.revoked_at?time(g.revoked_at)+(g.revocation_reason?' ('+words(g.revocation_reason)+')':''):'';}
+function revoked(g){return g.revoked_at?time(g.revoked_at)+(g.revocation_reason?' ('+revocationReason(g.revocation_reason)+')':''):'';}
 
 const SUMMARY=[['Grant',g=>text(g.grant_id)],['Status',g=>text(g.status)],['Bearer key',g=>text(g.bearer_key_id)],
   ['Capabilities',g=>list(g.capabilities)],['Basis',basis],['Valid',validity],['Uses',uses],['Issued',issued],['Revoked',revoked]];
@@ -70,18 +78,29 @@ function envelopeTable(grant){
 }
 
 function revocationRows(r,store){
-  return [['Revoked at',time(r.revoked_at)],['Reason',words(r.reason)],['Detail',text(r.detail)],['Revoked by',text(r.revoked_by)],
+  return [['Revoked at',time(r.revoked_at)],['Reason',r.reason?text(r.reason)+': '+revocationReason(r.reason):''],['Detail',text(r.detail)],['Revoked by',text(r.revoked_by)],
     ['Revocation',text(r.revocation_id)],...(store!=null?[['Store position',count(store)]]:[])];
 }
 
-/** The action a grant's detail offers: revoking it, prepared for the operator to review, sign and send. */
+/** The actions a grant's detail offers, prepared for the operator to review, sign and send: its uses, its revocation. */
+function usesAction(grantId){
+  return {operation:'grants-list-grant-uses',parameters:{grant_id:grantId},label:'Prepare the list of its uses'};
+}
 function revokeAction(grantId){
   return {operation:'grants-revoke-grant',parameters:{grant_id:grantId},label:'Prepare revocation of this grant'};
 }
 
+/** The use chain's length, and how many of its uses were quarantined. */
+function chain(g){
+  if(!Number.isSafeInteger(g.chain_length))return '';
+  const quarantined=Number.isSafeInteger(g.uses)?g.chain_length-g.uses:0;
+  return g.chain_length+(quarantined>0?' ('+quarantined+' quarantined)':'');
+}
+
 /**
- * `GET /admin/grants/<id>`: the grant, its uses and remaining budget, its
- * envelope and its revocation, and (unless revoked) the revocation action.
+ * `GET /admin/grants/<id>`: the grant, its use chain and remaining budget,
+ * its envelope and its revocation, and the actions: its uses and (unless
+ * revoked) its revocation.
  */
 export function grantView(data){
   if(!isObject(data)||typeof data.grant_id!=='string')return {tables:[],note:''};
@@ -89,14 +108,35 @@ export function grantView(data){
   const policies=Array.isArray(data.policy_versions)?data.policy_versions.filter(isObject)
     .map(p=>text(p.policy_id)+' v'+text(p.version)).join(', '):'';
   const rows=[['Status',text(data.status)],['Bearer',text(data.bearer_key_id)+(data.bearer_sovereign_id?' ('+data.bearer_sovereign_id+')':'')],
-    ['Capabilities',list(data.capabilities)],['Basis',basis(data)],['Valid',validity(data)],['Uses',uses(data)],
-    ['Remaining uses',count(data.remaining_uses)],['Uses per time token',count(grant.max_uses_per_time_token)],
+    ['Capabilities',list(data.capabilities)],['Basis',basis(data)],['Valid',validity(data)],['Uses admitted',uses(data)],
+    ['Remaining uses',count(data.remaining_uses)],['Use chain',chain(data)],['Uses per time token',count(grant.max_uses_per_time_token)],
     ['Issued',issued(data)],['Store position',count(data.store_sequence)],['Checked against',policies]];
   const tables=[{state:'grant',caption:'Grant '+data.grant_id,headers:['Field','Value'],rows},...envelopeTable(grant)];
   if(isObject(data.revocation))tables.push({state:'revocation',caption:'Revocation',headers:['Field','Value'],rows:revocationRows(data.revocation)});
-  const notes=['Each admitted use is a grant_execution entry in the evidence store; a resource\'s changes list the uses that changed it.'];
+  const notes=['The use chain counts every use the authority holds in it, admitted or quarantined; the budget counts admitted uses only.'];
   if(data.status==='revoked')notes.push('Uses executed from the revocation on are refused.');
-  return {tables,note:notes.join(' '),...(data.status==='revoked'?{}:{action:revokeAction(data.grant_id)})};
+  return {tables,note:notes.join(' '),actions:[usesAction(data.grant_id),...(data.status==='revoked'?[]:[revokeAction(data.grant_id)])]};
+}
+
+const USES=[['#',u=>count(u.use_sequence)],['Use',u=>text(u.use_id)],['State',u=>text(u.state)],['Refused as',u=>text(u.rejection_code)],
+  ['Executed',u=>time(u.executed_at)],['Recorded',u=>time(u.recorded_at)],['Resource',u=>text(u.resource_id)],
+  ['Resource position',u=>count(u.resource_sequence)],['Store position',u=>count(u.store_sequence)],['Outcome',u=>text(u.outcome)]];
+
+/**
+ * `GET /admin/grants/<id>/uses`: the grant's use chain, newest first: each
+ * use admitted, or quarantined (refused, yet continuing the chain, with the
+ * code it was refused with), and the next page.
+ */
+export function grantUsesView(data){
+  if(!isObject(data)||!Array.isArray(data.uses))return {tables:[],note:''};
+  const rows=data.uses.filter(isObject);
+  const tables=rows.length?[{state:'uses',caption:'Uses of grant '+text(data.grant_id)+' ('+rows.length+')',
+    headers:USES.map(c=>c[0]),rows:rows.map(u=>USES.map(c=>c[1](u)))}]:[];
+  const notes=[rows.length?'':'No uses yet.'];
+  if(rows.some(u=>u.state==='quarantined'))
+    notes.push('A quarantined use was refused but continued the chain: the next use follows it, and it does not count against the budget.');
+  if(Number.isSafeInteger(data.next_before))notes.push('More on the next page: send again with before = '+data.next_before);
+  return {tables,note:notes.filter(Boolean).join(' ')};
 }
 
 /** `POST /admin/grants`: the signed grant and the first time token the holder keeps with it. */
@@ -150,13 +190,19 @@ export function grantUseView(data){
   return {tables:[{state:'grant_use',caption:'Grant use '+text(u.use_id),headers:['Field','Value'],rows}],note};
 }
 
-/** `GET /admin/evidence/resource-heads/<id>`: the record the next record of a resource links to. */
+// What a resource's head is (1.6.0: the authority names its entry kind and record ID).
+const HEADS={execution:'execution evidence',grant_execution:'a grant use',retention_checkpoint:'the latest retention checkpoint'};
+
+/** `GET /admin/evidence/resource-heads/<id>`: the record the next record of a resource links to, and what it is. */
 export function resourceHeadView(data){
   if(!isObject(data)||typeof data.resource_id!=='string')return {tables:[],note:''};
-  return {tables:[{state:'head',caption:'Head of '+data.resource_id,headers:['Field','Value'],
-    rows:[['Position',count(data.resource_sequence)],['Record digest',text(data.record_digest)]]}],
-    note:'The next record of this resource links to this digest. From Genesis Mesh 1.6.0 the head may be a grant use, '+
-      'at the position the authority gave it when it admitted the use; the resource\'s changes show which record it is.'};
+  const kind=typeof data.entry_kind==='string'?data.entry_kind:'';
+  const rows=[['Position',count(data.resource_sequence)],['Record digest',text(data.record_digest)]];
+  if(kind)rows.push(['Record',(HEADS[kind]??words(kind))+(data.record_id?' '+data.record_id:'')]);
+  let note='The next record of this resource links to this digest.';
+  if(kind==='grant_execution')note+=' The head is a grant use, at the position the authority gave it when it admitted the use.';
+  else if(kind==='retention_checkpoint')note+=' Retention removed the resource\'s stored records; the checkpoint carries its head.';
+  return {tables:[{state:'head',caption:'Head of '+data.resource_id,headers:['Field','Value'],rows}],note};
 }
 
 /** Extra details of a change in a resource's changes: the grant a use was made under, or a grant use refused. */
