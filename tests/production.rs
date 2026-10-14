@@ -2164,6 +2164,210 @@ async fn the_console_serves_its_grant_views() {
 }
 
 #[tokio::test]
+async fn the_edge_node_list_reaches_its_route_with_its_query_as_a_network_operation() {
+    // (method, upstream path and query, operator headers present)
+    type Seen = (String, String, bool);
+    let seen = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<Seen>::new()));
+    let record = seen.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(
+        move |method: axum::http::Method, uri: axum::http::Uri, headers: axum::http::HeaderMap| {
+            let record = record.clone();
+            async move {
+                assert!(!headers.contains_key("authorization"));
+                record.lock().await.push((
+                    method.to_string(),
+                    uri.to_string(),
+                    headers.contains_key("x-admin-signature"),
+                ));
+                axum::Json(json!({"count": 0, "next_before": null, "edge_nodes": []}))
+            }
+        },
+    ))
+    .await;
+    // A client scoped to the network with operator forwarding; the authority
+    // checks the read tier.
+    let app = router(audit_fixture(&origin));
+    for (path, upstream) in [
+        // The cursor is a node public key: base64, so '+', '/' and '=' are encoded once.
+        (
+            "edge-list-edge-nodes?status=online&node_sovereign_id=site7-17&limit=500&before=nodeKey%2BA%2F%3D",
+            "/admin/edge-nodes?before=nodeKey%2BA%2F%3D&limit=500&node_sovereign_id=site7-17&status=online",
+        ),
+        ("edge-list-edge-nodes?status=revoked", "/admin/edge-nodes?status=revoked"),
+        ("edge-list-edge-nodes", "/admin/edge-nodes"),
+    ] {
+        let response = forwarded(&app, path, None, true).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let last = seen.lock().await.last().unwrap().clone();
+        assert_eq!(last, ("GET".to_owned(), upstream.to_owned(), true), "{path}");
+    }
+    // The list needs the operator headers and takes only its four query fields.
+    let response = forwarded(&app, "edge-list-edge-nodes", None, false).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let response = forwarded(&app, "edge-list-edge-nodes?cursor=x", None, true).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    // The routes an edge agent signs with its node key are not forwarded.
+    for path in [
+        "edge-node-boundary-evaluate",
+        "edge-node-state",
+        "edge-node-resource-head",
+    ] {
+        let response = forwarded(&app, path, Some("{}"), true).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+    assert_eq!(seen.lock().await.len(), 3);
+    let (_, catalog) = call(&app, "/v1/services", None, None).await;
+    let operations = catalog["operations"].as_array().unwrap();
+    assert!(operations
+        .iter()
+        .all(|o| !o["upstream_path"].as_str().unwrap().starts_with("/node/")));
+    let op = operations
+        .iter()
+        .find(|o| o["id"] == "edge-list-edge-nodes")
+        .unwrap();
+    assert_eq!(op["group"], "network");
+    assert_eq!(op["admin"], true);
+    assert_eq!(op["method"], "GET");
+    assert_eq!(op["upstream_path"], "/admin/edge-nodes");
+    assert_eq!(
+        op["query"],
+        json!(["before", "limit", "node_sovereign_id", "status"])
+    );
+    assert!(op.get("max_response_bytes").is_none());
+    task.abort();
+    // A client without operator forwarding, or without the network group, reaches none of it.
+    let mut cfg = audit_fixture("http://127.0.0.1:9");
+    cfg.security.as_mut().unwrap().clients[0].authority_admin = false;
+    let response = forwarded(&router(cfg), "edge-list-edge-nodes", None, true).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let app = router(evidence_fixture("http://127.0.0.1:9"));
+    let response = forwarded(&app, "edge-list-edge-nodes", None, true).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn an_edge_node_revocation_and_edge_refusals_are_relayed_unchanged() {
+    // /admin/revoke of an edge node's certificate adds the edge_node block.
+    let revoked = json!({"crl_sequence": 12, "revoked_count": 3, "edge_node": {
+        "node_public_key": "nodeKeyA", "executor_key_id": "edge-3f1c0d4e9a7b2c6d8e0f1a2b3c4d5e6f",
+        "revoked_cert_ids": ["c-1", "c-2"], "executor_key_retired": true, "grants_revoked": 2}});
+    let served = revoked.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(move || {
+        let served = served.clone();
+        async move { axum::Json(served) }
+    }))
+    .await;
+    let app = router(audit_fixture(&origin));
+    let response = forwarded(
+        &app,
+        "admin-revoke-certificate",
+        Some(r#"{"cert_id": "c-1", "reason": "key_compromise"}"#),
+        true,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let relayed: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(relayed, revoked);
+    task.abort();
+    // Edge invites, enrolment, the list and a direct retirement of an edge
+    // node's key are refused with the authority's code.
+    for (status, code, path, body) in [
+        (
+            400,
+            "invalid_edge_invite",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            409,
+            "node_sovereign_in_use",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            409,
+            "edge_requires_evidence_store",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            400,
+            "invalid_resource_prefix",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            409,
+            "resource_prefix_overlap",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            400,
+            "invalid_edge_status",
+            "edge-list-edge-nodes?status=x",
+            None,
+        ),
+        (
+            409,
+            "executor_key_is_edge_node",
+            "evidence_store-retire-executor-key?key_id=edge-3f1c0d4e9a7b2c6d8e0f1a2b3c4d5e6f",
+            Some("{}"),
+        ),
+        // A revoked edge node's key is refused at /renew and /heartbeat whatever certificate it presents.
+        (
+            403,
+            "edge_node_retired",
+            "enrollment-renew-certificate",
+            Some("{}"),
+        ),
+        (403, "edge_node_retired", "enrollment-heartbeat", Some("{}")),
+    ] {
+        let error = json!({"code": code, "message": "refused"});
+        let served = json!({"error": error.clone()});
+        let (origin, task) = mock_authority(Router::new().fallback(move || {
+            let served = served.clone();
+            async move { (StatusCode::from_u16(status).unwrap(), axum::Json(served)) }
+        }))
+        .await;
+        let mut cfg = audit_fixture(&origin);
+        cfg.security.as_mut().unwrap().clients[0]
+            .service_groups
+            .insert("enrollment".into());
+        let response = forwarded(&router(cfg), path, body, true).await;
+        assert_eq!(response.status().as_u16(), status, "{path}");
+        let relayed: Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(relayed["error"], error, "{path}");
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn the_console_serves_its_edge_node_views() {
+    let app = router(fixture().0);
+    for (path, marker) in [
+        ("/assets/edge.js", "export function edgeNodesView"),
+        ("/assets/app.js", "./edge.js"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with("text/javascript"));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
+    }
+}
+
+#[tokio::test]
 async fn the_authoritys_retry_after_and_request_id_are_passed_on() {
     let (origin, task) =
         mock_authority(Router::new().fallback(|uri: axum::http::Uri| async move {

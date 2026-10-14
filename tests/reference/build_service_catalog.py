@@ -33,7 +33,11 @@ EXCLUDE = {"/", "/favicon.svg", "/favicon.ico", "/operator-console-static/logo.s
 # they cite, often 50 MB or more: the gateway would hold it in memory several
 # times over, past its 10-second authority timeout (the CLI waits 120 s). An
 # auditor runs `genesis-mesh audit pack` against the authority instead.
-NOT_FORWARDED = {"/admin/evidence/audit-pack": "audit pack: an unpaged bulk export of up to 50,000 entries"}
+# The node-scoped routes (1.7.0) are signed by an edge node's own key, bound to
+# their purpose and the authority: the agent calls its authority directly.
+NOT_FORWARDED = {"/admin/evidence/audit-pack": "audit pack: an unpaged bulk export of up to 50,000 entries",
+                 **{path: "node-signed: an edge agent calls its authority directly" for path in
+                    ["/node/boundary/evaluate", "/node/state", "/node/evidence/resource-head"]}}
 # Query parameters the core reads in its service layer rather than the route,
 # on the GET operation of the path (the grant list shares its path with issuance).
 SERVICE_QUERY = {
@@ -62,8 +66,11 @@ RESPONSE_LIMITS = {path: {"max_response_bytes": 8 * 1024 * 1024} for path in [
 # holders submit their time-token requests and uses there, as controllers submit
 # execution evidence. Issuing and revoking need a privileged operator signature,
 # reading a read-tier one; the authority checks the tier.
+# The edge node list (1.7.0) is read like the node roster: network metadata for
+# operators, read tier.
 GROUPS = {"public": "network", "health": "network", "crl": "network", "admin": "administration",
-          "remediation": "evidence_store", "key_history": "network", "grants": "evidence_store"}
+          "remediation": "evidence_store", "key_history": "network", "grants": "evidence_store",
+          "edge": "network"}
 # Routes whose group is not their file's: recording a succession replaces the
 # NA's signing key, so only clients scoped to administration may forward it.
 PATH_GROUPS = {"/admin/na/succession": "administration"}
