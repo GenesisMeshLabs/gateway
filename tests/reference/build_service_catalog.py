@@ -34,25 +34,35 @@ EXCLUDE = {"/", "/favicon.svg", "/favicon.ico", "/operator-console-static/logo.s
 # times over, past its 10-second authority timeout (the CLI waits 120 s). An
 # auditor runs `genesis-mesh audit pack` against the authority instead.
 NOT_FORWARDED = {"/admin/evidence/audit-pack": "audit pack: an unpaged bulk export of up to 50,000 entries"}
-# Query parameters the core reads in its service layer rather than the route.
+# Query parameters the core reads in its service layer rather than the route,
+# on the GET operation of the path (the grant list shares its path with issuance).
 SERVICE_QUERY = {
     "/admin/evidence": ["after_sequence", "attestation_id", "capability", "decision_id", "entry_kind",
                         "limit", "outcome", "resource_id", "since", "until", "vendor_id"],
     "/admin/evidence/export": ["limit", "since_sequence"],
+    "/admin/grants": ["before", "bearer_key_id", "limit", "status"],
 }
 # Responses that are not a JSON document, forwarded as text within their own limit.
 RESPONSE_FORMATS = {"/admin/evidence/export": {"response": "ndjson", "max_response_bytes": 8 * 1024 * 1024}}
 # JSON responses that may exceed the default 2 MiB: a due-queue page (up to 500
 # states, each with its pending review), one subject's every review and record,
-# and a resource's changes (up to 10,000, each with its remediation from 1.4.0).
+# a resource's changes (up to 10,000, each with its remediation from 1.4.0), and
+# (1.6.0) a page of up to 500 grant summaries of up to 16 capabilities each, and
+# a signed grant, issued or read, whose envelope holds up to 64 parameters of up
+# to 256 values each.
 RESPONSE_LIMITS = {path: {"max_response_bytes": 8 * 1024 * 1024} for path in [
     "/admin/evidence/remediations", "/admin/evidence/remediations/{subject_id}",
-    "/admin/evidence/changes/{resource_id}"]}
+    "/admin/evidence/changes/{resource_id}", "/admin/grants", "/admin/grants/{grant_id}"]}
 # The remediation routes (1.4.0) are evidence-store operations: a client scoped
 # to the store reaches them, as controllers submit their remediation records there.
 # The key history (1.5.0) is public network metadata, read like the genesis block.
+# Pre-issued grants (1.6.0) are evidence-store operations: a grant, its uses and
+# its revocation are store records, its bearer is a registered executor key, and
+# holders submit their time-token requests and uses there, as controllers submit
+# execution evidence. Issuing and revoking need a privileged operator signature,
+# reading a read-tier one; the authority checks the tier.
 GROUPS = {"public": "network", "health": "network", "crl": "network", "admin": "administration",
-          "remediation": "evidence_store", "key_history": "network"}
+          "remediation": "evidence_store", "key_history": "network", "grants": "evidence_store"}
 # Routes whose group is not their file's: recording a succession replaces the
 # NA's signing key, so only clients scoped to administration may forward it.
 PATH_GROUPS = {"/admin/na/succession": "administration"}
@@ -97,6 +107,14 @@ examples.update({
     "/admin/evidence/remediations/{subject_id}/notified": {"channel": "email"},
     "/admin/evidence/reviews": {"subject_kind": "judgement", "subject_id": "PASTE_JUDGEMENT_ID", "justification": "Why a second holder should review this change"},
     "/admin/evidence/reviews/{review_id}/decide": {"verdict": "uphold", "note": "Reviewed with the change owner"},
+    # Pre-issued grants (1.6.0): the bearer and the basis are placeholders the authority refuses unedited.
+    "/admin/grants": {"bearer_key_id": "PASTE_EXECUTOR_KEY_ID", "capabilities": ["secret.manage"],
+                      "attestation_id": "PASTE_ATTESTATION_ID", "valid_from": "2026-06-01T08:00:00Z",
+                      "valid_until": "2026-06-01T12:00:00Z", "max_uses": 3, "max_uses_per_time_token": 2,
+                      "parameter_envelope": {"region": {"one_of": ["eu-west", "eu-north"]}}},
+    "/admin/grants/{grant_id}/revoke": {"reason": "The device holding the grant was lost"},
+    "/grants/time-tokens": {"request": {}},
+    "/evidence/grant-executions": {"evidence": {}},
 })
 operations = []
 left_out = set()
@@ -117,9 +135,9 @@ for file in sorted((SOURCE / "genesis_mesh/na_service/routes").glob("*.py")):
             methods = next((ast.literal_eval(k.value) for k in dec.keywords if k.arg == "methods"), ["GET"])
             parameters = re.findall(r"<(?:path:)?([^>]+)>", path)
             path = re.sub(r"<(?:path:)?([^>]+)>", r"{\1}", path)
-            query = sorted(set(re.findall(r'request\.args\.get\(["\']([^"\']+)', ast.get_source_segment(file.read_text(encoding="utf-8"), function)))
-                           | set(SERVICE_QUERY.get(path, [])))
+            route_query = set(re.findall(r'request\.args\.get\(["\']([^"\']+)', ast.get_source_segment(file.read_text(encoding="utf-8"), function)))
             for method in methods:
+                query = sorted(route_query | set(SERVICE_QUERY.get(path, []) if method == "GET" else []))
                 body = examples.get(path, {"reason": "cessation_of_operation"} if path.endswith("/revoke") else {})
                 operations.append({"id": file.stem + "-" + function.name.replace("_", "-"),
                     "group": PATH_GROUPS.get(path, GROUPS.get(file.stem, file.stem)), "name": function.name.removesuffix("_route").replace("_", " ").capitalize(),
