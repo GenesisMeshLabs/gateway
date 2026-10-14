@@ -51,6 +51,8 @@ export function explainFailure(status,data,headers){
   }
   if(status===403){
     if(gateway)return 'Your service identity does not have access to this operation.';
+    // 1.7.0: a revoked edge node's key is refused whatever certificate it presents.
+    if(code==='edge_node_retired')return 'The authority revoked this edge node: its node key is refused whatever certificate it presents. To bring the device back, reset its agent and enrol it with a new edge invite.';
     if(code==='insufficient_operator_tier')return 'This operator key\'s tier does not allow this operation. Sign with a key of the required tier: '+(message||'see the authority\'s operator key tiers.');
     return 'The authority refused the request ('+(code||'forbidden')+')'+(message?': '+message:'');
   }
@@ -66,7 +68,10 @@ export function explainFailure(status,data,headers){
   if(code==='invalid_edge_invite')return 'An edge invite needs both node_sovereign_id and executor_resource_prefix. Send both, or neither for an ordinary invite.';
   if(code==='invalid_node_sovereign_id')return 'node_sovereign_id must be 1 to 64 characters: lowercase letters, digits, dots, underscores and hyphens, starting with a letter or digit.';
   if(code==='edge_requires_evidence_store')return 'Edge invites need the authority\'s evidence store and out-of-band recording: its operator turns them on with EVIDENCE_STORE=on and EVIDENCE_OUT_OF_BAND=on.';
-  if(code==='node_sovereign_in_use')return 'An active edge node already has this node_sovereign_id. Revoke that node first, or choose another ID.';
+  if(code==='node_sovereign_in_use')return 'This node_sovereign_id is in use: by an active edge node, an outstanding edge invite, another executor key or the subject of an attestation this authority issued. Choose another ID, or revoke the edge node that has it.';
+  if(code==='invalid_resource_prefix')return 'The resource prefix must be 1 to 256 characters. An edge invite\'s executor_resource_prefix also has no control characters and ends with / or :, for example edge:site7-17/.';
+  if(code==='resource_prefix_overlap')return 'The resource prefix overlaps the prefix of an active executor key or an outstanding edge invite: one starts with the other. Choose a prefix that neither covers nor is covered by another.';
+  if(code==='executor_key_is_edge_node')return 'This executor key belongs to an active edge node. Revoke the node with Revoke certificate: that also retires its key and revokes its grants.';
   if(code==='invalid_edge_status')return 'The edge node list filters by status online, offline or revoked. Leave status empty to list every edge node.';
   return 'Request rejected ('+status+')'+(message?': '+message:'');
 }

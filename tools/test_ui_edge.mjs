@@ -22,33 +22,53 @@ const revoked={...online,node_public_key:'<img src=x onerror=alert(1)>',node_sov
   revoked_at:'2026-10-14T10:00:00+00:00',revocation_reason:'key_compromise'};
 
 assert.deepEqual(EDGE_FILTERS,['online','offline','revoked']);
-let view=edgeNodesView({count:3,next_before:null,edge_nodes:[online,revoked,'not a node']});
+// The views read the time now from their caller: half a minute after the heartbeat.
+const NOW=Date.parse('2026-10-14T09:30:10Z');
+let view=edgeNodesView({count:3,next_before:null,edge_nodes:[online,revoked,'not a node']},NOW);
 assert.deepEqual(view.tables.map(t=>t.caption),['Edge nodes (2)']);
-assert.deepEqual(view.tables[0].headers,['Node','Sovereign','Status','Last seen','Snapshot age','Pending uploads','Grants in use','Break-glass uses','Agent']);
-assert.deepEqual(view.tables[0].rows[0],['nodeKeyA+/=','site7-17','online','2026-10-14 09:29:40 UTC from 203.0.113.17',
+assert.deepEqual(view.tables[0].headers,['Node','Sovereign','Executor key','Resource prefix','Status','Certificate','Last seen',
+  'Snapshot age','Pending uploads','Grants in use','Break-glass uses','Agent']);
+assert.deepEqual(view.tables[0].rows[0],['nodeKeyA+/=','site7-17','edge-3f1c0d4e9a7b2c6d8e0f1a2b3c4d5e6f','edge:site7-17/','online',
+  'c-1 (expires 2026-10-21 09:00:00 UTC)','2026-10-14 09:29:40 UTC from 203.0.113.17',
   '2 h 5 min (reported 2026-10-14 09:29:40 UTC)','12 (3 dead letters)','2 usable, 7 uses','1 (last 2026-10-13 22:10:05 UTC)','1.7.0']);
 // Authority text stays text; null agent and null counts are empty cells.
-assert.deepEqual(view.tables[0].rows[1],['<img src=x onerror=alert(1)>','<b>site</b>','revoked 2026-10-14 10:00:00 UTC (key compromise)',
-  '','','','','','']);
+assert.deepEqual(view.tables[0].rows[1],['<img src=x onerror=alert(1)>','<b>site</b>','edge-3f1c0d4e9a7b2c6d8e0f1a2b3c4d5e6f','edge:site7-17/',
+  'revoked 2026-10-14 10:00:00 UTC (key compromise)','c-1 (expires 2026-10-21 09:00:00 UTC)','','','','','','']);
 assert.equal(view.note,'');
 strings(view);
 
 // Durations, singular counts, no dead letters, an agent without a snapshot yet, zero counts.
-const row=n=>edgeNodesView({edge_nodes:[n],next_before:null}).tables[0].rows[0];
+const row=(n,now=NOW)=>edgeNodesView({edge_nodes:[n],next_before:null},now).tables[0].rows[0];
 for(const [age,shown] of [[0,'0 s'],[42,'42 s'],[125,'2 min 5 s'],[3600,'1 h'],[90061,'1 d 1 h']])
-  assert.equal(row({...online,agent:{...online.agent,snapshot_age_seconds:age}})[4],shown+' (reported 2026-10-14 09:29:40 UTC)');
+  assert.equal(row({...online,agent:{...online.agent,snapshot_age_seconds:age}})[7],shown+' (reported 2026-10-14 09:29:40 UTC)');
 let r=row({...online,agent:{version:'1.7.0',snapshot_age_seconds:null,pending_uploads:0,dead_letters:0,reported_at:'2026-10-14T09:29:40Z'},
   grants:{usable:1,admitted_uses:1},break_glass:{records:0,last_executed_at:null}});
-assert.deepEqual(r.slice(4),['no snapshot (reported 2026-10-14 09:29:40 UTC)','0','1 usable, 1 use','0','1.7.0']);
-assert.equal(row({...online,agent:{...online.agent,dead_letters:1}})[5],'12 (1 dead letter)');
+assert.deepEqual(r.slice(7),['no snapshot (reported 2026-10-14 09:29:40 UTC)','0','1 usable, 1 use','0','1.7.0']);
+assert.equal(row({...online,agent:{...online.agent,dead_letters:1}})[8],'12 (1 dead letter)');
 // An agent block with dropped or badly typed values leaves those cells empty.
 r=row({...online,agent:{version:null,snapshot_age_seconds:'42',pending_uploads:-1,reported_at:null},grants:{usable:null,admitted_uses:3}});
-assert.deepEqual(r.slice(4,9),['no snapshot','','','1 (last 2026-10-13 22:10:05 UTC)','']);
+assert.deepEqual(r.slice(7,12),['no snapshot','','','1 (last 2026-10-13 22:10:05 UTC)','']);
 // An offline node keeps its last heartbeat.
-assert.deepEqual(row({...online,status:'offline'}).slice(2,4),['offline','2026-10-14 09:29:40 UTC from 203.0.113.17']);
+assert.deepEqual(row({...online,status:'offline'}).slice(4,7),['offline','c-1 (expires 2026-10-21 09:00:00 UTC)',
+  '2026-10-14 09:29:40 UTC from 203.0.113.17']);
+// A node whose newest certificate expired is not merely offline: it must enrol again. Z and +00:00 both read.
+const lapsed={...online,status:'offline',cert_expires_at:'2026-10-14T09:00:00.000000+00:00'};
+view=edgeNodesView({edge_nodes:[lapsed],next_before:null},NOW);
+assert.deepEqual(view.tables[0].rows[0].slice(4,6),['certificate expired','c-1 (expired 2026-10-14 09:00:00 UTC)']);
+assert.match(view.note,/^A node whose certificate expired is refused at heartbeats and renewals until it enrols again;/);
+assert.equal(row({...lapsed,cert_expires_at:'2026-10-14T09:30:10Z'})[4],'certificate expired');
+assert.equal(row({...lapsed,cert_expires_at:'2026-10-14T09:30:11Z'})[4],'offline');
+// A revoked node stays revoked; its certificate says it expired.
+assert.deepEqual(row({...revoked,cert_expires_at:lapsed.cert_expires_at}).slice(4,6),
+  ['revoked 2026-10-14 10:00:00 UTC (key compromise)','c-1 (expired 2026-10-14 09:00:00 UTC)']);
+// No certificate (not yet issued) or an unreadable expiry: no expiry claimed.
+assert.deepEqual(row({...online,cert_id:null,cert_expires_at:null}).slice(4,6),['online','']);
+assert.deepEqual(row({...online,cert_expires_at:'next week'}).slice(4,6),['online','c-1 (expires next week)']);
+// Without a time from its caller, the view reads the clock.
+assert.equal(edgeNodesView({edge_nodes:[lapsed],next_before:null}).tables[0].rows[0][4],'certificate expired');
 
 // Paging: next_before is the node_public_key of the page's last node.
-view=edgeNodesView({count:1,next_before:'nodeKeyA+/=',edge_nodes:[online]});
+view=edgeNodesView({count:1,next_before:'nodeKeyA+/=',edge_nodes:[online]},NOW);
 assert.equal(view.note,'More on the next page: send again with before = nodeKeyA+/=');
 assert.deepEqual(edgeNodesView({count:0,next_before:null,edge_nodes:[]}),{tables:[],note:'No edge nodes match.'});
 
@@ -82,7 +102,14 @@ const authority=(code)=>({error:{code,message:'x'}});
 assert.match(explainFailure(400,authority('invalid_edge_invite'),{}),/needs both node_sovereign_id and executor_resource_prefix/);
 assert.match(explainFailure(400,authority('invalid_node_sovereign_id'),{}),/^node_sovereign_id must be 1 to 64 characters/);
 assert.match(explainFailure(409,authority('edge_requires_evidence_store'),{}),/EVIDENCE_STORE=on and EVIDENCE_OUT_OF_BAND=on\.$/);
-assert.match(explainFailure(409,authority('node_sovereign_in_use'),{}),/^An active edge node already has this node_sovereign_id\./);
+assert.match(explainFailure(409,authority('node_sovereign_in_use'),{}),
+  /^This node_sovereign_id is in use: by an active edge node, an outstanding edge invite, another executor key or the subject of an attestation/);
+assert.match(explainFailure(400,authority('invalid_resource_prefix'),{}),/1 to 256 characters\. .*ends with \/ or :, for example edge:site7-17\/\.$/);
+assert.match(explainFailure(409,authority('resource_prefix_overlap'),{}),/^The resource prefix overlaps the prefix of an active executor key or an outstanding edge invite/);
+// Retiring an edge node's key directly is refused: the node is revoked instead.
+assert.match(explainFailure(409,authority('executor_key_is_edge_node'),{}),/belongs to an active edge node\. Revoke the node with Revoke certificate/);
+// A revoked edge node at /renew or /heartbeat (403): explained, not the generic refusal.
+assert.match(explainFailure(403,authority('edge_node_retired'),{}),/^The authority revoked this edge node: its node key is refused whatever certificate it presents\./);
 assert.match(explainFailure(400,authority('invalid_edge_status'),{}),/online, offline or revoked/);
 // An edge invite needs the privileged tier: the existing tier explanation.
 assert.match(explainFailure(403,authority('insufficient_operator_tier'),{}),/tier does not allow/);

@@ -20,6 +20,12 @@ function time(value){
   return m?m[1]+' '+m[2]+' UTC':value;
 }
 
+/** A UTC time as milliseconds since the epoch, to the second; NaN for anything else. */
+function instant(value){
+  const m=typeof value==='string'?/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:Z|\+00:00)$/.exec(value):null;
+  return m?Date.parse(m[1]+'Z'):NaN;
+}
+
 /** A number of seconds in its two largest units: `42 s`, `2 min 5 s`, `2 h 5 min`, `3 d 4 h`. */
 function duration(seconds){
   if(!Number.isSafeInteger(seconds)||seconds<0)return '';
@@ -36,9 +42,17 @@ function duration(seconds){
 export const EDGE_FILTERS=['online','offline','revoked'];
 
 function agentOf(n){return isObject(n.agent)?n.agent:null;}
-function status(n){
+/** Whether the node's newest certificate has expired (the authority then refuses its heartbeats and renewals). */
+function expired(n,now){return n.status!=='revoked'&&certificateEnded(n,now);}
+function certificateEnded(n,now){return instant(n.cert_expires_at)<=now;}
+function status(n,now){
+  if(expired(n,now))return 'certificate expired';
   if(n.status!=='revoked'||!n.revoked_at)return text(n.status);
   return 'revoked '+time(n.revoked_at)+(n.revocation_reason?' ('+words(n.revocation_reason)+')':'');
+}
+function certificate(n,now){
+  if(!n.cert_id)return '';
+  return text(n.cert_id)+(n.cert_expires_at?' ('+(certificateEnded(n,now)?'expired ':'expires ')+time(n.cert_expires_at)+')':'');
 }
 function lastSeen(n){return time(n.last_seen_at)+(n.last_seen_at&&n.remote_addr?' from '+n.remote_addr:'');}
 function snapshotAge(n){
@@ -64,19 +78,26 @@ function breakGlass(n){
   return b.records+(b.last_executed_at?' (last '+time(b.last_executed_at)+')':'');
 }
 
-const NODES=[['Node',n=>text(n.node_public_key)],['Sovereign',n=>text(n.node_sovereign_id)],['Status',status],['Last seen',lastSeen],
+const NODES=[['Node',n=>text(n.node_public_key)],['Sovereign',n=>text(n.node_sovereign_id)],['Executor key',n=>text(n.executor_key_id)],
+  ['Resource prefix',n=>text(n.resource_prefix)],['Status',status],['Certificate',certificate],['Last seen',lastSeen],
   ['Snapshot age',snapshotAge],['Pending uploads',pending],['Grants in use',grants],['Break-glass uses',breakGlass],
   ['Agent',n=>text(agentOf(n)?.version)]];
 
-/** `GET /admin/edge-nodes`: one row per edge node, newest enrolment first, and the next page. */
-export function edgeNodesView(data){
+/**
+ * `GET /admin/edge-nodes`: one row per edge node, newest enrolment first, and
+ * the next page. A node whose newest certificate expired before `now` shows
+ * as `certificate expired`, not offline: it must enrol again.
+ */
+export function edgeNodesView(data,now=Date.now()){
   if(!isObject(data)||!Array.isArray(data.edge_nodes))return {tables:[],note:''};
   const nodes=data.edge_nodes.filter(isObject);
   const tables=nodes.length?[{state:'edge_nodes',caption:'Edge nodes ('+nodes.length+')',headers:NODES.map(c=>c[0]),
-    rows:nodes.map(n=>NODES.map(c=>c[1](n)))}]:[];
-  let note=nodes.length?'':'No edge nodes match.';
-  if(typeof data.next_before==='string'&&data.next_before)note='More on the next page: send again with before = '+data.next_before;
-  return {tables,note};
+    rows:nodes.map(n=>NODES.map(c=>c[1](n,now)))}]:[];
+  const notes=[nodes.length?'':'No edge nodes match.'];
+  if(nodes.some(n=>expired(n,now)))notes.push('A node whose certificate expired is refused at heartbeats and renewals until it '+
+    'enrols again; its agent still acts under the grants it holds.');
+  if(typeof data.next_before==='string'&&data.next_before)notes.push('More on the next page: send again with before = '+data.next_before);
+  return {tables,note:notes.filter(Boolean).join(' ')};
 }
 
 /**

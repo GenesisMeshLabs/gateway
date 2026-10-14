@@ -2270,7 +2270,8 @@ async fn an_edge_node_revocation_and_edge_refusals_are_relayed_unchanged() {
         serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
     assert_eq!(relayed, revoked);
     task.abort();
-    // Edge invites and the list are refused with the authority's code.
+    // Edge invites, enrolment, the list and a direct retirement of an edge
+    // node's key are refused with the authority's code.
     for (status, code, path, body) in [
         (
             400,
@@ -2292,10 +2293,36 @@ async fn an_edge_node_revocation_and_edge_refusals_are_relayed_unchanged() {
         ),
         (
             400,
+            "invalid_resource_prefix",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            409,
+            "resource_prefix_overlap",
+            "admin-create-invite",
+            Some("{}"),
+        ),
+        (
+            400,
             "invalid_edge_status",
             "edge-list-edge-nodes?status=x",
             None,
         ),
+        (
+            409,
+            "executor_key_is_edge_node",
+            "evidence_store-retire-executor-key?key_id=edge-3f1c0d4e9a7b2c6d8e0f1a2b3c4d5e6f",
+            Some("{}"),
+        ),
+        // A revoked edge node's key is refused at /renew and /heartbeat whatever certificate it presents.
+        (
+            403,
+            "edge_node_retired",
+            "enrollment-renew-certificate",
+            Some("{}"),
+        ),
+        (403, "edge_node_retired", "enrollment-heartbeat", Some("{}")),
     ] {
         let error = json!({"code": code, "message": "refused"});
         let served = json!({"error": error.clone()});
@@ -2304,8 +2331,11 @@ async fn an_edge_node_revocation_and_edge_refusals_are_relayed_unchanged() {
             async move { (StatusCode::from_u16(status).unwrap(), axum::Json(served)) }
         }))
         .await;
-        let app = router(audit_fixture(&origin));
-        let response = forwarded(&app, path, body, true).await;
+        let mut cfg = audit_fixture(&origin);
+        cfg.security.as_mut().unwrap().clients[0]
+            .service_groups
+            .insert("enrollment".into());
+        let response = forwarded(&router(cfg), path, body, true).await;
         assert_eq!(response.status().as_u16(), status, "{path}");
         let relayed: Value =
             serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
