@@ -433,6 +433,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/assets/errors.js",
         "/assets/remediation.js",
         "/assets/keys.js",
+        "/assets/grants.js",
         "/openapi.json",
         "/no/such/path",
     ] {
@@ -1750,6 +1751,402 @@ async fn the_console_serves_its_key_history_view() {
             "export function keyHistoryView",
         ),
         ("/assets/app.js", "text/javascript", "./keys.js"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with(content_type));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn grant_operations_reach_their_routes_as_evidence_store_operations() {
+    // (method, upstream path and query, body, operator headers present)
+    type Seen = (String, String, String, bool);
+    let seen = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<Seen>::new()));
+    let record = seen.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(
+        move |method: axum::http::Method,
+              uri: axum::http::Uri,
+              headers: axum::http::HeaderMap,
+              body: axum::body::Bytes| {
+            let record = record.clone();
+            async move {
+                assert!(!headers.contains_key("authorization"));
+                record.lock().await.push((
+                    method.to_string(),
+                    uri.to_string(),
+                    String::from_utf8(body.to_vec()).unwrap(),
+                    headers.contains_key("x-admin-signature"),
+                ));
+                axum::Json(json!({"grant_id": "g-1", "status": "active"}))
+            }
+        },
+    ))
+    .await;
+    // A client scoped to the evidence store with operator forwarding: issuing,
+    // reading and revoking grants, and a holder's time tokens and uses.
+    let app = router(evidence_fixture(&origin));
+    // (operation, body, operator headers sent, upstream, operator headers forwarded)
+    for (path, body, admin, upstream, signed) in [
+        (
+            "grants-issue-grant",
+            Some(r#"{"bearer_key_id": "site-7-device", "capabilities": ["secret.rotate"], "attestation_id": "a-1", "valid_until": "2026-06-01T12:00:00Z", "max_uses": 3, "parameter_envelope": {"lifetime_days": {"number_range": {"number_type": "integer", "minimum": 1, "maximum": 60.0}}}}"#),
+            true,
+            "/admin/grants",
+            true,
+        ),
+        (
+            "grants-list-grants?status=active&bearer_key_id=site-7-device&limit=500&before=2026-06-01T07%3A59%3A00.123456%2B00%3A00",
+            None,
+            true,
+            "/admin/grants?bearer_key_id=site-7-device&before=2026-06-01T07%3A59%3A00.123456%2B00%3A00&limit=500&status=active",
+            true,
+        ),
+        ("grants-list-grants", None, true, "/admin/grants", true),
+        (
+            "grants-get-grant?grant_id=7f1c2a9e-0000-4000-8000-000000000001",
+            None,
+            true,
+            "/admin/grants/7f1c2a9e-0000-4000-8000-000000000001",
+            true,
+        ),
+        // The use chain, a page at a time from a use_sequence.
+        (
+            "grants-list-grant-uses?grant_id=g-1&before=42&limit=100",
+            None,
+            true,
+            "/admin/grants/g-1/uses?before=42&limit=100",
+            true,
+        ),
+        // A grant's uses and revocation in the evidence search (1.6.0).
+        (
+            "evidence_store-search?grant_id=g-1&entry_kind=grant_execution",
+            None,
+            true,
+            "/admin/evidence?entry_kind=grant_execution&grant_id=g-1",
+            true,
+        ),
+        (
+            "grants-revoke-grant?grant_id=g-1",
+            Some(r#"{"reason": "The device was lost"}"#),
+            true,
+            "/admin/grants/g-1/revoke",
+            true,
+        ),
+        // A holder's routes are authenticated by its bearer key's signature in
+        // the body: operator headers sent with them go no further.
+        (
+            "grants-time-token",
+            Some(r#"{"request": {"grant_id": "g-1", "use_sequence": 0, "requested_at": "2026-06-01T08:00:00Z", "signature": {"key_id": "site-7-device", "sig": "S"}}}"#),
+            true,
+            "/grants/time-tokens",
+            false,
+        ),
+        (
+            "grants-submit-grant-execution",
+            Some(r#"{"evidence": {"use_id": "u-1", "grant_id": "g-1", "use_sequence": 1, "request_parameters": {"ratio": 1.0}}}"#),
+            false,
+            "/evidence/grant-executions",
+            false,
+        ),
+    ] {
+        let response = forwarded(&app, path, body, admin).await;
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let last = seen.lock().await.last().unwrap().clone();
+        let method = if body.is_some() { "POST" } else { "GET" };
+        // The signed body reaches the authority byte for byte (a use's 1.0 stays 1.0).
+        assert_eq!(
+            last,
+            (
+                method.to_owned(),
+                upstream.to_owned(),
+                body.unwrap_or_default().to_owned(),
+                signed
+            ),
+            "{path}"
+        );
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn grant_operations_keep_scope_operator_headers_tiers_and_identifier_rules() {
+    let app = router(evidence_fixture("http://127.0.0.1:9"));
+    // Every operator route needs the operator headers; the authority checks
+    // the tier (privileged to issue and revoke, read to list and read).
+    for (path, body) in [
+        ("grants-issue-grant", Some("{}")),
+        ("grants-list-grants?status=revoked", None),
+        ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
+        ("grants-revoke-grant?grant_id=g-1", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, false).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+    }
+    // Only the list takes a query (status, bearer_key_id, limit, before);
+    // grant IDs are one ASCII segment; bodies are JSON objects.
+    for (path, body) in [
+        ("grants-list-grants?cursor=x", None),
+        ("grants-issue-grant?status=active", Some("{}")),
+        ("grants-get-grant?grant_id=g-1&status=active", None),
+        ("grants-list-grant-uses?grant_id=g-1&status=active", None),
+        ("grants-list-grant-uses?before=3", None),
+        ("grants-get-grant?grant_id=..", None),
+        ("grants-get-grant?grant_id=g%2F..%2F1", None),
+        ("grants-revoke-grant?grant_id=g%25", Some("{}")),
+        ("grants-revoke-grant?grant_id=g%C3%AB", Some("{}")),
+        ("grants-time-token?grant_id=g-1", Some("{}")),
+        ("grants-submit-grant-execution", Some("[]")),
+        ("grants-time-token", Some("not json")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{path}");
+    }
+    // A client without operator forwarding reaches the holder routes only.
+    let mut cfg = evidence_fixture("http://127.0.0.1:9");
+    cfg.security.as_mut().unwrap().clients[0].authority_admin = false;
+    let app = router(cfg);
+    for (path, body) in [
+        ("grants-issue-grant", Some("{}")),
+        ("grants-list-grants", None),
+        ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
+        ("grants-revoke-grant?grant_id=g-1", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+    }
+    // A client without the evidence store, the demo client included, reaches none of them.
+    let mut cfg = audit_fixture("http://127.0.0.1:9");
+    cfg.security.as_mut().unwrap().clients[0].service_groups = [
+        "network".into(),
+        "administration".into(),
+        "out_of_band".into(),
+    ]
+    .into();
+    let app = router(with_demo(cfg, demo_client()));
+    for (path, body) in [
+        ("grants-issue-grant", Some("{}")),
+        ("grants-list-grants", None),
+        ("grants-get-grant?grant_id=g-1", None),
+        ("grants-list-grant-uses?grant_id=g-1", None),
+        ("grants-revoke-grant?grant_id=g-1", Some("{}")),
+        ("grants-time-token", Some("{}")),
+        ("grants-submit-grant-execution", Some("{}")),
+    ] {
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
+        let (status, _) = call(
+            &app,
+            &format!("/v1/networks/public-agency/services/{path}"),
+            body.map(|b| serde_json::from_str::<Value>(b).unwrap()),
+            Some(DEMO_TOKEN),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "demo {path}");
+    }
+    // The catalog: (operation, operator-signed, query, response limit).
+    let (_, catalog) = call(&app, "/v1/services", None, None).await;
+    let operations = catalog["operations"].as_array().unwrap();
+    let eight = json!(8 * 1024 * 1024);
+    for (id, admin, query, limit) in [
+        ("grants-issue-grant", true, json!([]), Some(&eight)),
+        (
+            "grants-list-grants",
+            true,
+            json!(["bearer_key_id", "before", "limit", "status"]),
+            Some(&eight),
+        ),
+        ("grants-get-grant", true, json!([]), Some(&eight)),
+        (
+            "grants-list-grant-uses",
+            true,
+            json!(["before", "limit"]),
+            None,
+        ),
+        ("grants-revoke-grant", true, json!([]), None),
+        ("grants-time-token", false, json!([]), None),
+        ("grants-submit-grant-execution", false, json!([]), None),
+    ] {
+        let op = operations.iter().find(|o| o["id"] == id).unwrap();
+        assert_eq!(op["group"], "evidence_store", "{id}");
+        assert_eq!(op["admin"], admin, "{id}");
+        assert_eq!(op["query"], query, "{id}");
+        assert_eq!(op.get("max_response_bytes"), limit, "{id}");
+    }
+}
+
+#[tokio::test]
+async fn refusals_of_grant_operations_keep_their_code_and_details() {
+    // With grants off every grant route answers 404 grants_disabled; issuance
+    // refusals list every problem; a quarantined use names its quarantine entry.
+    for (status, error, path, body) in [
+        (
+            404,
+            json!({"code": "grants_disabled", "message": "grants are off"}),
+            "grants-list-grants",
+            None,
+        ),
+        (
+            422,
+            json!({"code": "grant_gate_may_deny", "message": "refused", "details": {"problems": [
+                {"reason": "grant_gate_may_deny", "detail": "lifetime_days may exceed 30",
+                 "capability": "secret.rotate", "policy_id": "rotation", "policy_version": 3, "gate_id": "max-life"}]}}),
+            "grants-issue-grant",
+            Some("{}"),
+        ),
+        (
+            409,
+            json!({"code": "grant_already_revoked", "message": "refused"}),
+            "grants-revoke-grant?grant_id=g-1",
+            Some("{}"),
+        ),
+        (
+            404,
+            json!({"code": "grant_not_found", "message": "unknown grant"}),
+            "grants-get-grant?grant_id=g-9",
+            None,
+        ),
+        // The list's cursor is a grant ID, the uses' a use_sequence: an unknown one is refused.
+        (
+            400,
+            json!({"code": "invalid_page", "message": "before must be the ID of a grant (next_before)"}),
+            "grants-list-grants?before=g-0",
+            None,
+        ),
+        (
+            400,
+            json!({"code": "invalid_page", "message": "before must be a use_sequence (next_before)"}),
+            "grants-list-grant-uses?grant_id=g-1&before=x",
+            None,
+        ),
+        // What a grant rests on changed during its issuance: retry.
+        (
+            409,
+            json!({"code": "grant_issuance_conflict", "message": "retry"}),
+            "grants-issue-grant",
+            Some("{}"),
+        ),
+        // A stored grant that no longer verifies under the NA's signature.
+        (
+            503,
+            json!({"code": "grant_store_integrity_failed", "message": "not used"}),
+            "grants-get-grant?grant_id=g-1",
+            None,
+        ),
+        (
+            409,
+            json!({"code": "grant_expired", "message": "refused"}),
+            "grants-time-token",
+            Some("{}"),
+        ),
+        (
+            422,
+            json!({"code": "grant_revoked", "message": "refused", "details": {"quarantine_id": "q-1"}}),
+            "grants-submit-grant-execution",
+            Some("{}"),
+        ),
+        (
+            409,
+            json!({"code": "grant_use_conflict", "message": "refused", "details": {"quarantine_id": "q-2"}}),
+            "grants-submit-grant-execution",
+            Some("{}"),
+        ),
+        // The bearer key's role or resource prefix does not cover the use's resource.
+        (
+            422,
+            json!({"code": "grant_use_out_of_scope", "message": "refused", "details": {"quarantine_id": "q-3"}}),
+            "grants-submit-grant-execution",
+            Some("{}"),
+        ),
+        (
+            503,
+            json!({"code": "evidence_store_unavailable", "message": "retry"}),
+            "grants-issue-grant",
+            Some("{}"),
+        ),
+    ] {
+        let served = json!({"error": error.clone()});
+        let (origin, task) = mock_authority(Router::new().fallback(move || {
+            let served = served.clone();
+            async move { (StatusCode::from_u16(status).unwrap(), axum::Json(served)) }
+        }))
+        .await;
+        let app = router(evidence_fixture(&origin));
+        let response = forwarded(&app, path, body, true).await;
+        assert_eq!(response.status().as_u16(), status, "{path}");
+        let retry = response.headers().get("retry-after").cloned();
+        let relayed: Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(relayed["error"], error, "{path}");
+        assert_eq!(retry.is_some(), status == 503, "{path}");
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn a_full_grant_page_fits_and_a_revocation_keeps_the_default_limit() {
+    // A page of 500 summaries, or a grant whose envelope is full, can pass 2 MiB.
+    let large = "{\"grants\":[\"".to_owned() + &"x".repeat(3 * 1024 * 1024) + "\"]}";
+    let body = std::sync::Arc::new(large);
+    let served = body.clone();
+    let (origin, task) = mock_authority(Router::new().fallback(move || {
+        let served = served.clone();
+        async move {
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                served.as_str().to_owned(),
+            )
+        }
+    }))
+    .await;
+    let app = router(evidence_fixture(&origin));
+    for (path, request, expected) in [
+        ("grants-list-grants", None, StatusCode::OK),
+        ("grants-get-grant?grant_id=g-1", None, StatusCode::OK),
+        ("grants-issue-grant", Some("{}"), StatusCode::OK),
+        (
+            "grants-revoke-grant?grant_id=g-1",
+            Some("{}"),
+            StatusCode::BAD_GATEWAY,
+        ),
+        (
+            "grants-submit-grant-execution",
+            Some("{}"),
+            StatusCode::BAD_GATEWAY,
+        ),
+    ] {
+        let response = forwarded(&app, path, request, true).await;
+        assert_eq!(response.status(), expected, "{path}");
+        if expected == StatusCode::OK {
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(bytes.len(), body.len());
+        }
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn the_console_serves_its_grant_views() {
+    let app = router(fixture().0);
+    for (path, content_type, marker) in [
+        (
+            "/assets/grants.js",
+            "text/javascript",
+            "export function grantView",
+        ),
+        ("/assets/app.js", "text/javascript", "./grants.js"),
     ] {
         let response = app
             .clone()

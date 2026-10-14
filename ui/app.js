@@ -4,6 +4,8 @@ import {adminRequestFor, operatorHeaders} from './signing.js';
 import {explainFailure, requestIds} from './errors.js';
 import {QUEUE_FILTERS, changesNote, queueView, remediationSummary, stateView, statusView} from './remediation.js';
 import {keyHistoryView, successionView} from './keys.js';
+import {GRANT_FILTERS, grantChangeDetails, grantStatusView, grantUseView, grantUsesView, grantView, grantsView, issuedView,
+  judgementView, resourceHeadView, revocationView, timeTokenView} from './grants.js';
 const $ = id => document.getElementById(id);
 const core = [
   {id:'mesh',method:'GET',path:'/v1/mesh',name:'Live mesh topology',description:'Published trust domains, active recognition treaties and explicitly public memberships.',public:true},
@@ -101,10 +103,11 @@ async function adminAudience(network,token){
   return key;
 }
 // Values offered for a parameter, by operation.
-const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS}};
+const CHOICES={'remediation-due-queue':{state:QUEUE_FILTERS},'grants-list-grants':{status:GRANT_FILTERS}};
 const CHANGE_STATES=new Set(['recorded','matched','judged_allowed','judged_denied','indeterminate','observed','quarantined',...QUEUE_FILTERS]);
 // A resource's changes (Genesis Mesh 1.3.0) as a table: how each was governed and its state,
-// and from 1.4.0 its Stage 3 state and remediation, a page at a time (after_sequence, limit).
+// and from 1.4.0 its Stage 3 state and remediation, a page at a time (after_sequence, limit);
+// from 1.6.0 the grant and use number of a change made under a grant.
 function renderChanges(data){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   const changes=Array.isArray(data&&data.changes)?data.changes:[];
@@ -114,7 +117,7 @@ function renderChanges(data){
   for(const c of changes){
     const details=[c.flagged_for_review?'flagged for review':'',c.justification?'justification: '+c.justification:'',
       c.rejection_code?'refused: '+c.rejection_code:'',c.observed_by?'observed by '+c.observed_by:'',
-      c.possible_match_evidence_id?'possible match: '+c.possible_match_evidence_id:''].filter(Boolean).join('; ');
+      c.possible_match_evidence_id?'possible match: '+c.possible_match_evidence_id:'',grantChangeDetails(c)].filter(Boolean).join('; ');
     const row=body.insertRow();
     for(const text of [c.store_sequence,c.kind,c.action,c.at,c.governed_by])row.append(node('td',text==null?'':String(text)));
     row.append(node('td',String(c.state||''),CHANGE_STATES.has(c.state)?'state '+c.state:'state'));
@@ -124,7 +127,8 @@ function renderChanges(data){
   if(changesNote(data))box.append(node('p',changesNote(data),'field-note'));
   box.hidden=false;
 }
-// Remediation states and counts (Genesis Mesh 1.4.0) and the NA key history (1.5.0) as captioned tables of text.
+// Remediation states and counts (Genesis Mesh 1.4.0), the NA key history (1.5.0) and grants (1.6.0) as
+// captioned tables of text. A view's actions (a grant's uses, its revocation) prepare those operations for review.
 function renderTables(view){
   const box=$('response-table');box.replaceChildren();box.hidden=true;
   for(const t of view.tables){
@@ -135,11 +139,27 @@ function renderTables(view){
     box.append(table);
   }
   if(view.note)box.append(node('p',view.note,'field-note'));
+  for(const action of view.actions||[]){const b=node('button',action.label,'button secondary');b.type='button';b.addEventListener('click',()=>prepare(action));box.append(b);}
   box.hidden=!box.childElementCount;
 }
+// Select an operation with its parameters filled in, for the operator to review, sign and send: nothing is sent here.
+function prepare(action){
+  const operation=endpoints.find(e=>e.id===action.operation);
+  if(busy||!operation){$('request-state').textContent=operation?'Wait for the current request to finish.':'That operation is not in the catalog.';return;}
+  choose(operation);
+  for(const [name,value] of Object.entries(action.parameters||{})){const input=$('param-'+name);if(input)input.value=value;}
+  if(operation.admin)$('operator-panel').open=true;
+  $('request-state').textContent='Prepared for review. Nothing has been sent: check it, then sign and send.';
+  $('path').scrollIntoView({behavior:'smooth',block:'center'});
+}
+// Two views of one answer, one after the other.
+const both=(a,b)=>data=>{const x=a(data),y=b(data);return {tables:[...x.tables,...y.tables],note:[x.note,y.note].filter(Boolean).join(' ')};};
 const VIEWS={'remediation-due-queue':queueView,'remediation-get-remediation':stateView,'remediation-record-notice':stateView,
-  'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':statusView,
-  'key_history-key-history':keyHistoryView,'key_history-succession':successionView};
+  'remediation-request-review':stateView,'remediation-decide-review':stateView,'evidence_store-status':both(statusView,grantStatusView),
+  'key_history-key-history':keyHistoryView,'key_history-succession':successionView,
+  'grants-list-grants':grantsView,'grants-get-grant':grantView,'grants-list-grant-uses':grantUsesView,'grants-issue-grant':issuedView,'grants-revoke-grant':revocationView,
+  'grants-time-token':timeTokenView,'grants-submit-grant-execution':grantUseView,'evidence_store-resource-head':resourceHeadView,
+  'out_of_band-judge-observation':judgementView,'out_of_band-judge-break-glass':judgementView};
 async function send(){
   if(busy)return;busy=true;$('send').disabled=true;$('network-select').disabled=true;const e=selected, generation=sessionGeneration;
   $('response-table').hidden=true;

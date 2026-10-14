@@ -54,6 +54,14 @@ export function explainFailure(status,data,headers){
     if(code==='insufficient_operator_tier')return 'This operator key\'s tier does not allow this operation. Sign with a key of the required tier: '+(message||'see the authority\'s operator key tiers.');
     return 'The authority refused the request ('+(code||'forbidden')+')'+(message?': '+message:'');
   }
+  // 1.6.0: every grant route answers 404 grants_disabled while the authority has grants off.
+  if(code==='grants_disabled')return 'Pre-issued grants are off on this authority: its operator turns them on with EVIDENCE_GRANTS=on (and EVIDENCE_OUT_OF_BAND=on).';
+  if(code==='grant_issuance_conflict')return 'What the grant rests on (a policy version, the bearer key, the attestation or the agreement\'s trust) changed while the authority issued it. Send the issuance again.';
+  if(code==='grant_store_integrity_failed')return 'A grant the authority holds no longer verifies under its signature, so the authority does not use it. Its operator must check the authority\'s database. '+wait(headers);
+  if(code==='grant_use_out_of_scope'){
+    const id=data?.error?.details?.quarantine_id;
+    return 'The bearer key\'s role or resource prefix does not cover the use\'s resource'+(typeof id==='string'&&id?'; the authority kept the use in quarantine '+id:'')+'.';
+  }
   return 'Request rejected ('+status+')'+(message?': '+message:'');
 }
 

@@ -969,6 +969,7 @@
       "capability",
       "decision_id",
       "entry_kind",
+      "grant_id",
       "limit",
       "outcome",
       "resource_id",
@@ -1167,6 +1168,131 @@
     "body": {
       "older_than_days": 365,
       "through_sequence": "PASTE_ARCHIVED_THROUGH_SEQUENCE"
+    }
+  },
+  {
+    "id": "grants-issue-grant",
+    "group": "evidence_store",
+    "name": "Issue grant",
+    "description": "Check a grant against every policy that applies, sign it and store it.",
+    "method": "POST",
+    "upstream_path": "/admin/grants",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "bearer_key_id": "PASTE_EXECUTOR_KEY_ID",
+      "capabilities": [
+        "secret.manage"
+      ],
+      "attestation_id": "PASTE_ATTESTATION_ID",
+      "valid_from": "2026-06-01T08:00:00Z",
+      "valid_until": "2026-06-01T12:00:00Z",
+      "max_uses": 3,
+      "max_uses_per_time_token": 2,
+      "parameter_envelope": {
+        "region": {
+          "one_of": [
+            "eu-west",
+            "eu-north"
+          ]
+        }
+      }
+    },
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "grants-list-grants",
+    "group": "evidence_store",
+    "name": "List grants",
+    "description": "Grants, newest first: ?status=active|expired|revoked, ?bearer_key_id=, ?limit=, ?before=.",
+    "method": "GET",
+    "upstream_path": "/admin/grants",
+    "admin": true,
+    "parameters": [],
+    "query": [
+      "bearer_key_id",
+      "before",
+      "limit",
+      "status"
+    ],
+    "body": null,
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "grants-get-grant",
+    "group": "evidence_store",
+    "name": "Get grant",
+    "description": "One grant, its state (uses, status) and its revocation.",
+    "method": "GET",
+    "upstream_path": "/admin/grants/{grant_id}",
+    "admin": true,
+    "parameters": [
+      "grant_id"
+    ],
+    "query": [],
+    "body": null,
+    "max_response_bytes": 8388608
+  },
+  {
+    "id": "grants-list-grant-uses",
+    "group": "evidence_store",
+    "name": "List grant uses",
+    "description": "A grant's use chain, newest first: admitted uses and quarantined uses that continued it.",
+    "method": "GET",
+    "upstream_path": "/admin/grants/{grant_id}/uses",
+    "admin": true,
+    "parameters": [
+      "grant_id"
+    ],
+    "query": [
+      "before",
+      "limit"
+    ],
+    "body": null
+  },
+  {
+    "id": "grants-revoke-grant",
+    "group": "evidence_store",
+    "name": "Revoke grant",
+    "description": "Revoke a grant: uses executed from now on are refused.",
+    "method": "POST",
+    "upstream_path": "/admin/grants/{grant_id}/revoke",
+    "admin": true,
+    "parameters": [
+      "grant_id"
+    ],
+    "query": [],
+    "body": {
+      "reason": "The device holding the grant was lost"
+    }
+  },
+  {
+    "id": "grants-time-token",
+    "group": "evidence_store",
+    "name": "Time token",
+    "description": "A time token for the holder of a grant (the request is signed by its bearer key).",
+    "method": "POST",
+    "upstream_path": "/grants/time-tokens",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "request": {}
+    }
+  },
+  {
+    "id": "grants-submit-grant-execution",
+    "group": "evidence_store",
+    "name": "Submit grant execution",
+    "description": "Admit one signed use of a grant; one refused for good is quarantined.",
+    "method": "POST",
+    "upstream_path": "/evidence/grant-executions",
+    "admin": false,
+    "parameters": [],
+    "query": [],
+    "body": {
+      "evidence": {}
     }
   },
   {
