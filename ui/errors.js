@@ -54,6 +54,8 @@ export function explainFailure(status,data,headers){
     if(code==='insufficient_operator_tier')return 'This operator key\'s tier does not allow this operation. Sign with a key of the required tier: '+(message||'see the authority\'s operator key tiers.');
     return 'The authority refused the request ('+(code||'forbidden')+')'+(message?': '+message:'');
   }
+  // 1.6.0: every grant route answers 404 grants_disabled while the authority has grants off.
+  if(code==='grants_disabled')return 'Pre-issued grants are off on this authority: its operator turns them on with EVIDENCE_GRANTS=on (and EVIDENCE_OUT_OF_BAND=on).';
   return 'Request rejected ('+status+')'+(message?': '+message:'');
 }
 

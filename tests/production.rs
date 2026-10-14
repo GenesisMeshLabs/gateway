@@ -433,6 +433,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/assets/errors.js",
         "/assets/remediation.js",
         "/assets/keys.js",
+        "/assets/grants.js",
         "/openapi.json",
         "/no/such/path",
     ] {
@@ -2073,6 +2074,32 @@ async fn a_full_grant_page_fits_and_a_revocation_keeps_the_default_limit() {
         }
     }
     task.abort();
+}
+
+#[tokio::test]
+async fn the_console_serves_its_grant_views() {
+    let app = router(fixture().0);
+    for (path, content_type, marker) in [
+        (
+            "/assets/grants.js",
+            "text/javascript",
+            "export function grantView",
+        ),
+        ("/assets/app.js", "text/javascript", "./grants.js"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert!(response.headers()["content-type"]
+            .to_str()
+            .unwrap()
+            .starts_with(content_type));
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
+    }
 }
 
 #[tokio::test]
