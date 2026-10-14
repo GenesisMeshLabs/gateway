@@ -13,6 +13,9 @@ appear. A membership also needs `claims.public_mesh: true`; private subjects,
 arbitrary claims, keys, origins and credentials are excluded from this projection.
 The diagram is an authority-reported read model, not a replacement for signature
 verification or a guarantee that a member operates a reachable application.
+Edge nodes (Genesis Mesh 1.7.0) are operator data and are not projected
+publicly; operators list them in the console's
+[edge node view](services.md#edge-nodes-genesis-mesh-170).
 
 ### Members
 

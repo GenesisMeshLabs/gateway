@@ -1,6 +1,6 @@
 # Authority services
 
-The console exposes 109 explicitly allowed authority operations in addition to
+The console exposes 110 explicitly allowed authority operations in addition to
 eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
@@ -19,7 +19,7 @@ describe each HTTP method, resource parameter, query field and request example.
 | Enrollment | Invite, join, heartbeat, renew and certificate revocation |
 | Discovery | Signed agent registration, lookup, listing and deregistration |
 | Treaties | Issue, inspect, verify, revoke, import feeds and inspect trust paths |
-| Network | Genesis, policy, CRL, health, dashboard, atlas, node roster and the NA key history (1.5.0) |
+| Network | Genesis, policy, CRL, health, dashboard, atlas, node roster, the NA key history (1.5.0) and edge nodes (1.7.0, see [below](#edge-nodes-genesis-mesh-170)) |
 | Administration | Policy versions, rollback, operator-key revocation and NA key succession (1.5.0) |
 
 ## Using the console
@@ -45,8 +45,9 @@ Some answers are also shown as tables above the JSON: a resource's changes,
 the due queue, one subject's remediation state and the evidence store status
 (see [below](#remediation-reviews-and-notification)), the NA key history
 (see [below](#key-history-archives-and-audit-packs)), and grants, grant uses,
-resource heads and judgements (see [below](#pre-issued-grants)). The tables
-hold text only; the authority's values are never read as markup.
+resource heads and judgements (see [below](#pre-issued-grants)), and edge
+nodes and an edge node's revocation (see [below](#edge-nodes-genesis-mesh-170)).
+The tables hold text only; the authority's values are never read as markup.
 
 Use **Insert last response** to put a successful result into a field of the next
 request, such as `offer`, `agreement`, `commitment` or `attestation`. Original
@@ -517,6 +518,78 @@ page.
   address: all of the gateway's clients share it, as they share the
   [observation limit](#observation-submission-rate). A holder with many uses
   to upload after reconnecting can send them to the authority directly.
+
+## Edge nodes (Genesis Mesh 1.7.0)
+
+*The edge node list is beta.*
+
+An edge node is a device that runs the Genesis Mesh edge agent. It enrols
+with an edge invite, holds its own node and executor keys, and keeps acting
+under the grants it holds while it cannot reach its authority. Operators
+list edge nodes and revoke them through the gateway; the agent itself talks
+to its authority directly.
+
+### Operations
+
+| Operation | Authority route | Who |
+| --- | --- | --- |
+| List edge nodes | `GET /admin/edge-nodes` (`status`, `node_sovereign_id`, `limit` 1 to 500, `before`) | Operator, read tier |
+
+*List edge nodes* is in the `network` group, like the node roster (*List
+nodes*). Edge invites and edge revocation extend existing operations:
+
+- *Create invite* takes `node_sovereign_id` and `executor_resource_prefix`
+  together (for example `edge:site7-17/`). An edge invite needs the
+  privileged tier, and an authority with `EVIDENCE_STORE=on` and
+  `EVIDENCE_OUT_OF_BAND=on`.
+- *Revoke certificate*, given a certificate of an edge node, revokes the
+  node: every certificate it holds in one CRL, its executor key, and the
+  grants that key bears (reason `bearer_key_retired`). The answer adds an
+  `edge_node` block.
+
+The three routes an edge agent signs with its node key are not forwarded:
+`POST /node/boundary/evaluate`, `POST /node/state` and
+`POST /node/evidence/resource-head`. Each request is bound to its purpose
+and to one authority, and the agent calls its authority directly. They are
+not in the catalog or the OpenAPI document.
+
+### In the console
+
+- **Edge nodes**: *List edge nodes* shows one row per node, newest
+  enrolment first: its node public key and sovereign ID; its status
+  (`online` while its newest heartbeat is under five minutes old,
+  `offline`, or `revoked` with when and why); its last heartbeat and
+  address; what its agent last reported (the age of its trust snapshot,
+  uploads pending with any dead letters, and its version); the usable
+  grants its executor key bears and their admitted uses; and its
+  break-glass records since it enrolled, with the latest. The `status`
+  field suggests `online`, `offline` and `revoked`. A cell is empty when
+  the authority has nothing to report: no heartbeat from the agent yet,
+  grants off (`EVIDENCE_GRANTS`), or the evidence store off. When a page is
+  full, the note gives `next_before`, the node public key of the page's
+  last node; send it as `before`.
+- **Revocation**: *Revoke certificate* of an edge node's certificate shows
+  the CRL sequence, the certificates revoked, the executor key and whether
+  it was retired, and the number of grants revoked with it. Revoking the
+  node again changes nothing. If the authority could not retire the key,
+  the certificates stay revoked and the authority retires the key when it
+  next starts; the note says so. Any other certificate's revocation shows
+  no table, as before.
+
+Edge nodes are operator data: the public [mesh view](mesh.md) does not show
+them.
+
+### Refusals
+
+The gateway relays the authority's refusals with their status and code.
+These are new in 1.7.0:
+
+| Area | Codes |
+| --- | --- |
+| Edge invites (*Create invite*) | `400 invalid_edge_invite` (one of the two fields without the other), `400 invalid_node_sovereign_id`, `400 invalid_resource_prefix`, `403 insufficient_operator_tier`, `409 edge_requires_evidence_store`, `409 node_sovereign_in_use` |
+| *List edge nodes* | `400 invalid_edge_status`, `400 invalid_page` (also a `before` that names no edge node) |
+
+The rules behind each code are on the core's operations page *The Edge Agent*.
 
 ## Persistence and validation
 
