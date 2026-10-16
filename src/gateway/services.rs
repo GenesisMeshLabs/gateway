@@ -373,6 +373,10 @@ fn upstream_headers(
 }
 
 #[cfg(test)]
+#[path = "../../tests/support/proptest_config.rs"]
+mod proptest_config;
+
+#[cfg(test)]
 mod properties {
     //! Property tests of the request parsers: the path segment validator,
     //! upstream path building and the JSON Lines reader.
@@ -480,7 +484,7 @@ mod properties {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(512))]
+        #![proptest_config(super::proptest_config::config(512))]
 
         #[test]
         fn valid_text_segment_follows_its_rule(segment in text()) {
@@ -539,8 +543,13 @@ mod properties {
         /// base64 has `/` (the core reads it with a `path:` converter), or is
         /// refused.
         #[test]
-        fn a_node_public_key_is_one_segment_or_is_refused(other in text()) {
-            let key = crate::crypto::KeyPair::generate().unwrap().public_key_b64();
+        fn a_node_public_key_is_one_segment_or_is_refused(
+            other in text(),
+            seed in any::<[u8; 32]>(),
+        ) {
+            use base64::Engine as _;
+            let seed = base64::engine::general_purpose::STANDARD.encode(seed);
+            let key = crate::crypto::KeyPair::from_seed_b64(&seed).unwrap().public_key_b64();
             for value in [key.as_str(), other.as_str()] {
                 let accepted = crate::crypto::validate_public_key(value).unwrap_or(false);
                 let result = build("/agents/{node_public_key}", "node_public_key", value);

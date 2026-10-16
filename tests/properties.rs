@@ -13,6 +13,9 @@ use genesis_mesh::models::JoinCertificate;
 use proptest::prelude::*;
 use serde_json::{json, Map, Value};
 
+#[path = "support/proptest_config.rs"]
+mod proptest_config;
+
 /// Any text, including control characters and characters outside the Basic
 /// Multilingual Plane.
 fn text() -> impl Strategy<Value = String> {
@@ -103,7 +106,7 @@ fn object_text(members: &[(&str, String)]) -> String {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(proptest_config::config(512))]
 
     #[test]
     fn canonical_form_is_pythons_json_dumps(value in value()) {
@@ -187,4 +190,28 @@ proptest! {
             prop_assert!(serde_json::from_str::<JoinCertificate>(&object_text(&widened)).is_err());
         }
     }
+}
+
+/// Unless a random run is asked for, every run draws the same cases (so the
+/// merge queue cannot fail on an unlucky draw) and writes no failure files.
+#[test]
+fn runs_are_deterministic_by_default() {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::{RngSeed, TestRunner};
+    if ["PROPTEST_RANDOM", "PROPTEST_RNG_SEED"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
+    {
+        return;
+    }
+    let config = proptest_config::config(8);
+    assert_eq!(config.rng_seed, RngSeed::Fixed(proptest_config::SEED));
+    assert!(config.failure_persistence.is_none());
+    let draw = || {
+        let mut runner = TestRunner::new(proptest_config::config(8));
+        (0..32)
+            .map(|_| value().new_tree(&mut runner).unwrap().current())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(draw(), draw());
 }
