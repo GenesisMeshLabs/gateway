@@ -49,7 +49,10 @@ Only routes that need a client credential are recorded: `/metrics`,
 `/v1/networks`, the authority service route, `/verify`, `/verify/batch` and
 the development routes. Health and readiness probes, public pages, static
 assets, `/openapi.json`, the public mesh view and unknown paths are logged
-only, so anonymous traffic cannot fill the store (v1.1.0). Raw credentials, request bodies, node
+only, so anonymous traffic cannot fill the store (v1.1.0). The router decides
+this: every route registered behind client authentication is recorded, and no
+other (1.7.1). Unknown paths, including the development routes in production,
+answer 404 without authentication and are not charged to a client quota. Raw credentials, request bodies, node
 keys, URL queries and certificate contents are excluded. Operator-selected
 client IDs must not contain personal data. An intent without completion means
 an uncertain outcome; inspect authority state before retrying a mutation.

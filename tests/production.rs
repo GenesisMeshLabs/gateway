@@ -445,6 +445,27 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         assert_ne!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
     }
     assert!(durable.pending_audit().unwrap().is_empty());
+    // The development routes do not exist in production: their paths are
+    // unknown paths, answered 404 without authentication and never audited
+    // (1.7.0 labelled them by path and wrote them to the store).
+    for path in ["/keygen", "/issue", "/no/such/path"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            durable.pending_audit().unwrap().is_empty(),
+            "{path} was written to the durable audit"
+        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
 
     assert_eq!(
         call(&app, "/v1/networks", None, None).await.0,

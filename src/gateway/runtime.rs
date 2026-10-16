@@ -1,7 +1,7 @@
 //! Bounded workers, per-client admission, and low-cardinality telemetry.
 use super::{ApiError, AppState};
 use axum::{
-    extract::{Request, State},
+    extract::{MatchedPath, Request, State},
     http::{HeaderValue, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
@@ -85,55 +85,85 @@ impl AppState {
     }
 }
 
-fn route_label(path: &str) -> &'static str {
-    match path {
-        "/" => "/",
-        "/api" => "/api",
-        "/v1/networks" => "/v1/networks",
-        "/openapi.json" => "/openapi.json",
-        "/assets/app.js" => "/assets/app.js",
-        "/assets/signing.js" => "/assets/signing.js",
-        "/assets/errors.js" => "/assets/errors.js",
-        "/assets/mesh.js" => "/assets/mesh.js",
-        "/assets/tour.js" => "/assets/tour.js",
-        "/assets/remediation.js" => "/assets/remediation.js",
-        "/assets/keys.js" => "/assets/keys.js",
-        "/assets/grants.js" => "/assets/grants.js",
-        "/assets/edge.js" => "/assets/edge.js",
-        "/assets/style.css" => "/assets/style.css",
-        "/v1/services" => "/v1/services",
-        "/v1/mesh" => "/v1/mesh",
-        "/v1/demo" => "/v1/demo",
-        "/health" => "/health",
-        "/ready" => "/ready",
-        "/metrics" => "/metrics",
-        "/verify" => "/verify",
-        "/verify/batch" => "/verify/batch",
-        "/keygen" => "/keygen",
-        "/issue" => "/issue",
-        path if path.starts_with("/v1/networks/") && path.contains("/services/") => {
-            "/v1/networks/{network}/services/{operation}"
-        }
-        _ => "unmatched",
+/// The durable audit record of one request. `observe` creates it for every
+/// request; only the guarded sub-router's `auth` layer starts it, so exactly
+/// the routes registered behind authentication are written to the durable
+/// store, and the router alone decides which routes those are. Public pages,
+/// probes, static assets, the published specification, the public mesh view
+/// and unknown paths are logged only: anyone could otherwise fill the store,
+/// which fails closed (every request then answers 503) (v1.1.0).
+#[derive(Clone)]
+pub(super) struct AuditTrail(Arc<Trail>);
+
+struct Trail {
+    id: String,
+    method: String,
+    route: String,
+    /// Set when the started event is being or has been written; the
+    /// completed event is then always written, also after a timeout.
+    started: std::sync::atomic::AtomicBool,
+    /// Audit capacity, held until the completed event is written.
+    permit: Mutex<Option<tokio::sync::OwnedSemaphorePermit>>,
+}
+
+impl AuditTrail {
+    fn new(id: String, method: String, route: String) -> Self {
+        Self(Arc::new(Trail {
+            id,
+            method,
+            route,
+            started: std::sync::atomic::AtomicBool::new(false),
+            permit: Mutex::new(None),
+        }))
+    }
+
+    fn is_started(&self) -> bool {
+        self.0.started.load(Ordering::Acquire)
     }
 }
 
-/// Routes whose requests are written to the durable audit store: the ones
-/// that need a client credential. Probes, public pages, static assets, the
-/// published specification, the public mesh view and unknown paths are logged
-/// only. Anyone could otherwise fill the store, which fails closed (every
-/// request then answers 503) (v1.1.0).
-fn durably_audited(route: &str) -> bool {
-    matches!(
-        route,
-        "/metrics"
-            | "/v1/networks"
-            | "/verify"
-            | "/verify/batch"
-            | "/keygen"
-            | "/issue"
-            | "/v1/networks/{network}/services/{operation}"
-    )
+/// Write the started event of a guarded request to the durable store, before
+/// the request does any work. Called by `handlers::auth` for every request
+/// that reaches a guarded route; a no-op without durable state.
+pub(super) async fn begin_audit(
+    state: &AppState,
+    trail: Option<&AuditTrail>,
+) -> Result<(), ApiError> {
+    let Some(durable) = state.cfg.durable.clone() else {
+        return Ok(());
+    };
+    let unavailable = || {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "durable audit unavailable".into(),
+        )
+    };
+    // `observe` wraps every route; without its trail the request cannot be audited.
+    let trail = trail.cloned().ok_or_else(unavailable)?;
+    let permit = state
+        .audit_workers
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "audit capacity exhausted".into(),
+            )
+        })?;
+    *trail.0.permit.lock().map_err(|_| unavailable())? = Some(permit);
+    trail.0.started.store(true, Ordering::Release);
+    let event_id = format!("{}:started", trail.0.id);
+    let event = serde_json::json!({"request_id":trail.0.id,"phase":"started","method":trail.0.method,"route":trail.0.route,"at":chrono::Utc::now()});
+    if matches!(
+        tokio::task::spawn_blocking(move || durable.audit(&event_id, &event)).await,
+        Ok(Ok(()))
+    ) {
+        Ok(())
+    } else {
+        // Nothing was started: no completed event follows.
+        trail.0.started.store(false, Ordering::Release);
+        Err(unavailable())
+    }
 }
 
 pub(super) async fn observe(
@@ -151,45 +181,22 @@ pub(super) async fn observe(
     let facts = AuditFacts::default();
     req.extensions_mut().insert(facts.clone());
     let method = req.method().clone();
-    // Never log raw URI, query, headers or bodies, which can contain secrets.
-    let route = route_label(req.uri().path());
-    let audit = state.cfg.durable.clone().filter(|_| durably_audited(route));
-    let _audit_permit = if audit.is_some() {
-        match state.audit_workers.clone().try_acquire_owned() {
-            Ok(permit) => Some(permit),
-            Err(_) => {
-                return ApiError(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "audit capacity exhausted".into(),
-                )
-                .into_response()
-            }
-        }
-    } else {
-        None
-    };
-    if let Some(durable) = &audit {
-        let durable = durable.clone();
-        let event_id = format!("{id}:started");
-        let event = serde_json::json!({"request_id":id,"phase":"started","method":method.as_str(),"route":route,"at":chrono::Utc::now()});
-        if !matches!(
-            tokio::task::spawn_blocking(move || durable.audit(&event_id, &event)).await,
-            Ok(Ok(()))
-        ) {
-            return ApiError(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "durable audit unavailable".into(),
-            )
-            .into_response();
-        }
-    }
+    // The route template the router matched; never the raw URI, query,
+    // headers or body, which can contain secrets.
+    let route = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map_or("unmatched", MatchedPath::as_str)
+        .to_owned();
+    let trail = AuditTrail::new(id.clone(), method.as_str().to_owned(), route.clone());
+    req.extensions_mut().insert(trail.clone());
     state.metrics.requests.fetch_add(1, Ordering::Relaxed);
     let mut response = next
         .run(req)
         .instrument(tracing::info_span!("request", request_id = %id))
         .await;
     let elapsed = started.elapsed().as_micros().min(u64::MAX as u128) as u64;
-    if let Some(durable) = audit {
+    if let Some(durable) = state.cfg.durable.clone().filter(|_| trail.is_started()) {
         let event_id = format!("{id}:completed");
         let context = facts.0.lock().map(|v| v.clone()).unwrap_or_default();
         let event = serde_json::json!({"request_id":id,"phase":"completed","status":response.status().as_u16(),"elapsed_us":elapsed,"context":context,"at":chrono::Utc::now()});
@@ -204,6 +211,7 @@ pub(super) async fn observe(
             .into_response();
         }
     }
+    drop(trail);
     state
         .metrics
         .latency_us
@@ -222,7 +230,7 @@ pub(super) async fn observe(
     if response.status().is_server_error() {
         state.metrics.failures.fetch_add(1, Ordering::Relaxed);
     }
-    tracing::info!(target: "audit", request_id = %id, %method, route, status = response.status().as_u16(), elapsed_us = started.elapsed().as_micros() as u64, "request completed");
+    tracing::info!(target: "audit", request_id = %id, %method, route = %route, status = response.status().as_u16(), elapsed_us = started.elapsed().as_micros() as u64, "request completed");
     response.headers_mut().insert(
         "x-request-id",
         HeaderValue::from_str(&id).expect("request id"),

@@ -23,7 +23,7 @@ mod ui;
 
 use std::sync::Arc;
 
-use axum::routing::{get, post};
+use axum::routing::{get, post, MethodRouter};
 use axum::serve::ListenerExt;
 use axum::Router;
 use tokio::net::TcpListener;
@@ -91,42 +91,19 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         dev_token_digest,
     };
 
-    let open = Router::new()
-        .route("/", get(ui::page))
-        .route("/assets/app.js", get(ui::script))
-        .route("/assets/signing.js", get(ui::signing_script))
-        .route("/assets/errors.js", get(ui::errors_script))
-        .route("/assets/mesh.js", get(mesh::script))
-        .route("/assets/tour.js", get(ui::tour_script))
-        .route("/assets/remediation.js", get(ui::remediation_script))
-        .route("/assets/keys.js", get(ui::keys_script))
-        .route("/assets/grants.js", get(ui::grants_script))
-        .route("/assets/edge.js", get(ui::edge_script))
-        .route("/assets/style.css", get(ui::style))
-        .route("/api", get(handlers::index))
-        .route("/v1/services", get(services::catalog))
-        .route("/v1/mesh", get(mesh::overview))
-        .route("/v1/demo", get(ui::demo))
-        .route("/openapi.json", get(ui::specification))
-        .route("/health", get(handlers::health))
-        .route("/ready", get(runtime::ready));
-
-    let mut guarded = Router::new();
-    if state.cfg.development {
-        guarded = guarded
-            .route("/keygen", post(handlers::keygen))
-            .route("/issue", post(handlers::issue));
-    }
-    let guarded = guarded
-        .route(
-            "/v1/networks/{network}/services/{operation}",
-            axum::routing::any(services::execute),
-        )
-        .route("/metrics", get(runtime::metrics))
-        .route("/v1/networks", get(ui::networks))
-        .route("/verify", post(handlers::verify))
-        .route("/verify/batch", post(handlers::verify_batch))
-        .layer(axum::middleware::from_fn_with_state(
+    let open = open_routes()
+        .into_iter()
+        .fold(Router::new(), |router, (path, route)| {
+            router.route(path, route)
+        });
+    let guarded = guarded_routes(state.cfg.development)
+        .into_iter()
+        .fold(Router::new(), |router, (path, route)| {
+            router.route(path, route)
+        })
+        // `route_layer`: unknown paths reach the merged fallback (404) without
+        // authentication, and are neither audited nor charged to a quota.
+        .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             handlers::auth,
         ));
@@ -148,6 +125,53 @@ fn build_router(cfg: Config) -> (Router, AppState) {
         ))
         .with_state(state.clone());
     (app, state)
+}
+
+/// Routes that need no credential. They are never written to the durable
+/// audit store, so anonymous traffic cannot fill it.
+fn open_routes() -> Vec<(&'static str, MethodRouter<AppState>)> {
+    vec![
+        ("/", get(ui::page)),
+        ("/assets/app.js", get(ui::script)),
+        ("/assets/signing.js", get(ui::signing_script)),
+        ("/assets/errors.js", get(ui::errors_script)),
+        ("/assets/mesh.js", get(mesh::script)),
+        ("/assets/tour.js", get(ui::tour_script)),
+        ("/assets/remediation.js", get(ui::remediation_script)),
+        ("/assets/keys.js", get(ui::keys_script)),
+        ("/assets/grants.js", get(ui::grants_script)),
+        ("/assets/edge.js", get(ui::edge_script)),
+        ("/assets/style.css", get(ui::style)),
+        ("/api", get(handlers::index)),
+        ("/v1/services", get(services::catalog)),
+        ("/v1/mesh", get(mesh::overview)),
+        ("/v1/demo", get(ui::demo)),
+        ("/openapi.json", get(ui::specification)),
+        ("/health", get(handlers::health)),
+        ("/ready", get(runtime::ready)),
+    ]
+}
+
+/// Routes behind client authentication (`handlers::auth`). Every request to
+/// one of them is written to the durable audit store when it is configured;
+/// registering a route here is what makes it audited.
+fn guarded_routes(development: bool) -> Vec<(&'static str, MethodRouter<AppState>)> {
+    let mut routes = Vec::new();
+    if development {
+        routes.push(("/keygen", post(handlers::keygen)));
+        routes.push(("/issue", post(handlers::issue)));
+    }
+    routes.extend([
+        (
+            "/v1/networks/{network}/services/{operation}",
+            axum::routing::any(services::execute),
+        ),
+        ("/metrics", get(runtime::metrics)),
+        ("/v1/networks", get(ui::networks)),
+        ("/verify", post(handlers::verify)),
+        ("/verify/batch", post(handlers::verify_batch)),
+    ]);
+    routes
 }
 
 /// Parse configuration from the environment, bind, and serve until Ctrl-C.
@@ -230,4 +254,127 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
     tracing::info!("shutdown signal received");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    const TOKEN: &str = "development-token-at-least-32-bytes";
+
+    /// A development router with durable state, so every route is registered.
+    fn audited_router() -> (Router, Arc<durable::DurableState>, std::path::PathBuf) {
+        let folder = std::env::temp_dir().join(format!("gateway-routes-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&folder).unwrap();
+        let path = folder.join("state.db");
+        durable::DurableState::initialize(&path).unwrap();
+        let store = Arc::new(durable::DurableState::open(&path).unwrap());
+        let cfg = Config {
+            durable: Some(store.clone()),
+            oidc: None,
+            distributed_quota: None,
+            development: true,
+            security: None,
+            addr: "127.0.0.1:0".parse().unwrap(),
+            token: Some(TOKEN.into()),
+            timeout: std::time::Duration::from_secs(5),
+            max_body_bytes: 65536,
+            max_inflight: 8,
+            max_batch: 8,
+            cpu_workers: 2,
+            max_batch_jobs: 1,
+        };
+        (router(cfg), store, folder)
+    }
+
+    fn concrete(template: &str) -> String {
+        template
+            .replace("{network}", "public-agency")
+            .replace("{operation}", "health-health")
+    }
+
+    async fn send(app: &Router, method: &str, path: &str, token: Option<&str>) -> StatusCode {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::from("{}")).unwrap())
+            .await
+            .unwrap();
+        response.status()
+    }
+
+    /// Every route registered behind authentication writes its started and
+    /// completed events, labelled with the route template, whether the
+    /// request is admitted or denied; no open route writes anything.
+    #[tokio::test]
+    async fn every_guarded_route_writes_started_and_completed_audit_events() {
+        let (app, store, folder) = audited_router();
+        let guarded = guarded_routes(true);
+        assert!(guarded.len() >= 7, "guarded routes went missing");
+        for (template, _) in &guarded {
+            for token in [None, Some(TOKEN)] {
+                let method = if template.starts_with("/v1/networks/")
+                    || *template == "/metrics"
+                    || *template == "/v1/networks"
+                {
+                    "GET"
+                } else {
+                    "POST"
+                };
+                let status = send(&app, method, &concrete(template), token).await;
+                if token.is_none() {
+                    assert_eq!(status, StatusCode::UNAUTHORIZED, "{template}");
+                }
+                let events = store.pending_audit().unwrap();
+                assert_eq!(events.len(), 2, "{template} (token: {})", token.is_some());
+                let (started, completed) = (&events[0], &events[1]);
+                assert_eq!(started["event"]["phase"], "started", "{template}");
+                assert_eq!(started["event"]["route"], *template);
+                assert_eq!(started["event"]["method"], method);
+                assert_eq!(completed["event"]["phase"], "completed", "{template}");
+                assert_eq!(completed["event"]["status"], status.as_u16());
+                assert_eq!(
+                    started["event"]["request_id"],
+                    completed["event"]["request_id"]
+                );
+                let ids: Vec<String> = events
+                    .iter()
+                    .map(|e| e["id"].as_str().unwrap().to_owned())
+                    .collect();
+                store.acknowledge(&ids).unwrap();
+            }
+        }
+        for (path, _) in open_routes() {
+            send(&app, "GET", path, None).await;
+            send(&app, "GET", path, Some(TOKEN)).await;
+            assert!(store.pending_audit().unwrap().is_empty(), "{path}");
+        }
+        assert_eq!(
+            send(&app, "POST", "/no/such/route", Some(TOKEN)).await,
+            StatusCode::NOT_FOUND
+        );
+        assert!(store.pending_audit().unwrap().is_empty());
+        drop(app);
+        drop(store);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    /// Open and guarded routes are disjoint, so each route has exactly one
+    /// audit class.
+    #[test]
+    fn a_route_is_either_open_or_guarded() {
+        let open: Vec<_> = open_routes().into_iter().map(|(p, _)| p).collect();
+        for (path, _) in guarded_routes(true) {
+            assert!(!open.contains(&path), "{path} is both open and guarded");
+        }
+    }
 }

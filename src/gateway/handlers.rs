@@ -26,6 +26,8 @@ use super::{ApiError, AppState};
 // ---------------------------------------------------------------------------
 
 /// Authenticate and apply the configured client quota before parsing JSON.
+/// This layer guards the authenticated sub-router, so it also starts each
+/// request's durable audit record (`runtime::begin_audit`).
 pub(super) async fn auth(
     State(state): State<AppState>,
     req: Request,
@@ -67,6 +69,13 @@ pub(super) async fn auth(
             }
         }
     }
+    // Every request that reaches a guarded route is durably audited, denials
+    // included, before it does any work.
+    let trail = req
+        .extensions()
+        .get::<super::runtime::AuditTrail>()
+        .cloned();
+    super::runtime::begin_audit(&state, trail.as_ref()).await?;
     let Some(principal) = identity else {
         state
             .metrics
