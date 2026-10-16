@@ -75,6 +75,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
         .map_err(|_| "state migration commit failed".into())
 }
 
+/// Most audit events read, and posted to the collector, at once.
+pub const AUDIT_BATCH: usize = 100;
+
 /// One exclusively owned SQLite store per gateway replica, on persistent storage.
 pub struct DurableState {
     connection: Mutex<Connection>,
@@ -278,14 +281,15 @@ impl DurableState {
         result.map_err(str::to_owned)
     }
 
-    /// Read a bounded delivery batch. Event IDs are stable idempotency keys.
+    /// Read a bounded delivery batch of at most [`AUDIT_BATCH`] events, oldest
+    /// first. Event IDs are stable idempotency keys.
     pub fn pending_audit(&self) -> Result<Vec<serde_json::Value>, String> {
         let connection = self.connection.lock().map_err(|_| "state lock poisoned")?;
         let mut query = connection
-            .prepare("SELECT id,body FROM audit WHERE delivered=0 ORDER BY rowid LIMIT 100")
+            .prepare("SELECT id,body FROM audit WHERE delivered=0 ORDER BY rowid LIMIT ?1")
             .map_err(|_| "audit read failed")?;
         let rows = query
-            .query_map([], |row| {
+            .query_map([AUDIT_BATCH as i64], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(|_| "audit read failed")?;

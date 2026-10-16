@@ -79,7 +79,10 @@ write errors, not silent event loss. Size storage and retention for real traffic
 
 Optional `GATEWAY_AUDIT_URL` is a pinned HTTPS collector; optional
 `GATEWAY_AUDIT_TOKEN_FILE` contains its bearer secret. Every five seconds the
-gateway posts up to 100 `{"events":[{"id":"...","event":{...}}]}` records.
+gateway posts up to 100 `{"events":[{"id":"...","event":{...}}]}` records,
+and keeps posting further batches at once while they are full and the
+collector acknowledges some of each, so a backlog drains at the collector's
+pace (1.7.1; before, one batch per five seconds, about 20 events a second).
 The collector must durably commit and deduplicate stable IDs before returning
 `{"acknowledged_ids":["..."]}`. HTTP 200 alone is insufficient. Only IDs in
 that batch are acknowledged; failures and partial acknowledgements retry.
