@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
   workflow_dispatch:
   schedule:
     - cron: '21 4 * * 1'
@@ -36,3 +37,20 @@ jobs:
       - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           category: /language:${{ matrix.language }}
+  # A stable name for the ruleset over the language matrix. CodeQL is skipped
+  # only while the repository is private; otherwise skipped is a failure.
+  codeql-summary:
+    name: CodeQL
+    if: always()
+    needs: [codeql]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every language was analyzed
+        env:
+          RESULT: ${{ needs.codeql.result }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          echo "codeql: $RESULT (private: $PRIVATE)"
+          if [ "$RESULT" = success ] || { [ "$RESULT" = skipped ] && [ "$PRIVATE" = true ]; }; then exit 0; fi
+          echo "::error::CodeQL did not pass for every language ($RESULT)."
+          exit 1

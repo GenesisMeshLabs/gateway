@@ -4,6 +4,8 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # The merge queue tests each PR on top of main and what is ahead of it.
+  merge_group:
 permissions:
   contents: read
 jobs:
@@ -99,6 +101,35 @@ jobs:
           python core/scripts/container_smoke.py --image genesis-mesh:ci --gateway-image genesis-mesh-gateway:ci \
             --compose-file core/deploy/compose/docker-compose.images.yml \
             --only gw-metadata --only gw-end-to-end --only gw-crl-refresh --only fed-two-sovereigns --only compose-example
+  # Stable names for the ruleset: each fails unless every matrix member passed.
+  verify-summary:
+    name: Verify
+    if: always()
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every platform passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then echo "::error::verify did not pass on every platform ($result)."; exit 1; fi
+          done
+  container-summary:
+    name: Network Authority end-to-end
+    if: always()
+    needs: [container]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every architecture passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "container: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then echo "::error::The end-to-end run did not pass on every architecture ($result)."; exit 1; fi
+          done
   catalog:
     name: Authority catalog and signing vectors match the core
     runs-on: ubuntu-latest
