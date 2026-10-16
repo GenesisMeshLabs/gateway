@@ -26,6 +26,7 @@ fn app() -> axum::Router {
         max_batch: 128,
         cpu_workers: 1,
         max_batch_jobs: 1,
+        audit_retention_days: 7,
     })
 }
 

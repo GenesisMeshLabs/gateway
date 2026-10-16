@@ -282,6 +282,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
             max_batch: 8,
             cpu_workers: 1,
             max_batch_jobs: 1,
+            audit_retention_days: 7,
         },
         cert,
         key,
@@ -2954,4 +2955,17 @@ async fn demo_requests_are_counted_but_not_durably_audited() {
     drop(app);
     drop(durable);
     std::fs::remove_dir_all(folder).ok();
+}
+
+#[test]
+fn delivered_audit_retention_is_bounded_and_zero_keeps_delivered_rows() {
+    let (mut cfg, _, _) = fixture();
+    assert_eq!(cfg.audit_retention(), Some(Duration::from_secs(7 * 86_400)));
+    cfg.audit_retention_days = 0;
+    assert!(cfg.validate().is_ok());
+    assert_eq!(cfg.audit_retention(), None);
+    cfg.audit_retention_days = 3650;
+    assert!(cfg.validate().is_ok());
+    cfg.audit_retention_days = 3651;
+    assert!(cfg.validate().is_err());
 }

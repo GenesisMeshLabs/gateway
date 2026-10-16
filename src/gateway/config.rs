@@ -36,7 +36,14 @@ pub struct Config {
     pub cpu_workers: usize,
     /// Concurrent batches; reserve CPU capacity for single requests when possible.
     pub max_batch_jobs: usize,
+    /// Days a durable audit row is kept after the collector acknowledged it;
+    /// 0 keeps delivered rows. Undelivered rows are never deleted.
+    /// `GATEWAY_AUDIT_RETENTION_DAYS`, default 7 (1.7.1).
+    pub audit_retention_days: u32,
 }
+
+/// Longest configurable delivered-audit retention, in days.
+const MAX_AUDIT_RETENTION_DAYS: u32 = 3650;
 
 impl Config {
     /// Read the environment. Returns an error string on an unparseable value.
@@ -122,6 +129,7 @@ impl Config {
             max_batch: parse("GATEWAY_MAX_BATCH", "128")?,
             cpu_workers: parse("GATEWAY_CPU_WORKERS", "2")?,
             max_batch_jobs: parse("GATEWAY_MAX_BATCH_JOBS", "1")?,
+            audit_retention_days: parse("GATEWAY_AUDIT_RETENTION_DAYS", "7")?,
         };
         cfg.prepare()?;
         Ok(cfg)
@@ -137,6 +145,12 @@ impl Config {
         Ok(())
     }
 
+    /// How long delivered durable audit rows are kept, if they are pruned.
+    pub fn audit_retention(&self) -> Option<Duration> {
+        (self.audit_retention_days > 0)
+            .then(|| Duration::from_secs(u64::from(self.audit_retention_days) * 86_400))
+    }
+
     /// Validate programmatic configuration as well as environment input.
     pub fn validate(&self) -> Result<(), String> {
         if self.timeout.is_zero()
@@ -150,6 +164,11 @@ impl Config {
             || (self.cpu_workers > 1 && self.max_batch_jobs == self.cpu_workers)
         {
             return Err("resource limits must be positive and within documented bounds".into());
+        }
+        if self.audit_retention_days > MAX_AUDIT_RETENTION_DAYS {
+            return Err(format!(
+                "GATEWAY_AUDIT_RETENTION_DAYS must be 0 (keep delivered audit) to {MAX_AUDIT_RETENTION_DAYS}"
+            ));
         }
         if self.development {
             if self.security.is_some() {
@@ -194,6 +213,7 @@ impl fmt::Debug for Config {
             .field("max_batch", &self.max_batch)
             .field("cpu_workers", &self.cpu_workers)
             .field("max_batch_jobs", &self.max_batch_jobs)
+            .field("audit_retention_days", &self.audit_retention_days)
             .finish()
     }
 }

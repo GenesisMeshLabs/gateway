@@ -12,8 +12,14 @@ struct Collector {
     token: Option<String>,
 }
 
+/// Pause between retention passes over delivered rows.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(600);
+
+/// Deliver pending audit events to `GATEWAY_AUDIT_URL`, if it is set, and
+/// delete delivered rows older than `retention` (`None` keeps them).
 pub(super) fn start(
     store: Option<Arc<DurableState>>,
+    retention: Option<Duration>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
     let Ok(url) = std::env::var("GATEWAY_AUDIT_URL") else {
         return Ok(None);
@@ -41,11 +47,31 @@ pub(super) fn start(
         token,
     };
     Ok(Some(tokio::spawn(async move {
+        let mut pruned: Option<std::time::Instant> = None;
         loop {
             drain(&store, &collector).await;
+            if let Some(retention) = retention {
+                if pruned.is_none_or(|at| at.elapsed() >= PRUNE_INTERVAL) {
+                    prune(&store, retention).await;
+                    pruned = Some(std::time::Instant::now());
+                }
+            }
             tokio::time::sleep(DELIVERY_INTERVAL).await;
         }
     })))
+}
+
+/// Delete delivered rows past retention. A failure is logged and retried at
+/// the next pass; it never touches undelivered rows or readiness.
+async fn prune(store: &Arc<DurableState>, retention: Duration) {
+    let store = store.clone();
+    match tokio::task::spawn_blocking(move || store.prune_delivered(retention, chrono::Utc::now()))
+        .await
+    {
+        Ok(Ok(0)) => {}
+        Ok(Ok(deleted)) => tracing::info!(deleted, "delivered audit rows past retention deleted"),
+        _ => tracing::warn!("delivered audit retention failed; retrying at the next pass"),
+    }
 }
 
 fn client() -> Result<reqwest::Client, String> {

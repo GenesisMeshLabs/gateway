@@ -188,7 +188,8 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tls = tls::from_env()?;
     let (app, state) = build_router(cfg);
     let refresh = sync::start(state.security.clone(), state.cfg.durable.clone());
-    let audit_delivery = audit_delivery::start(state.cfg.durable.clone())?;
+    let audit_delivery =
+        audit_delivery::start(state.cfg.durable.clone(), state.cfg.audit_retention())?;
 
     if let Some(tls) = tls {
         let handle = axum_server::Handle::new();
@@ -286,6 +287,7 @@ mod tests {
             max_batch: 8,
             cpu_workers: 2,
             max_batch_jobs: 1,
+            audit_retention_days: 7,
         };
         (router(cfg), store, folder)
     }

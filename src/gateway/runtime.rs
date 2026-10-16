@@ -380,6 +380,7 @@ mod tests {
             max_batch: 1,
             cpu_workers: 1,
             max_batch_jobs: 1,
+            audit_retention_days: 7,
         };
         let (_, state) = crate::gateway::build_router(cfg);
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();

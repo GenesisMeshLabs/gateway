@@ -36,7 +36,19 @@ struct Migration {
 /// The migration ladder. Append only: never edit, renumber or remove an
 /// entry that has been released. Each one must be additive (new tables,
 /// columns with defaults or NULL, indexes) and must never delete rows.
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATIONS: &[Migration] = &[Migration {
+    version: 2,
+    name: "audit delivery time",
+    // When the collector acknowledged a row (Unix seconds). NULL for rows
+    // acknowledged before this migration, or by a previous release after a
+    // rollback: their retention starts when pruning first sees them.
+    sql: "ALTER TABLE audit ADD COLUMN delivered_at INTEGER;
+          CREATE INDEX audit_retention ON audit(delivered, delivered_at);",
+}];
+
+/// Delivered audit rows removed per statement, so pruning never holds the
+/// store's lock for long.
+const PRUNE_CHUNK: i64 = 1000;
 
 /// Apply every migration this store has not recorded, in order, in one
 /// transaction: a store is either fully migrated or left as it was.
@@ -303,17 +315,61 @@ impl DurableState {
     }
 
     /// Acknowledge only IDs the remote durable collector explicitly confirms.
+    /// The first acknowledgement records when the row was delivered.
     pub fn acknowledge(&self, ids: &[String]) -> Result<(), String> {
+        let now = chrono::Utc::now().timestamp();
         let mut connection = self.connection.lock().map_err(|_| "state lock poisoned")?;
         let tx = connection
             .transaction()
             .map_err(|_| "audit acknowledgement failed")?;
         for id in ids {
-            tx.execute("UPDATE audit SET delivered=1 WHERE id=?1", [id])
-                .map_err(|_| "audit acknowledgement failed")?;
+            tx.execute(
+                "UPDATE audit SET delivered=1, delivered_at=COALESCE(delivered_at,?2) WHERE id=?1",
+                params![id, now],
+            )
+            .map_err(|_| "audit acknowledgement failed")?;
         }
         tx.commit()
             .map_err(|_| "audit acknowledgement commit failed".into())
+    }
+
+    /// Delete audit rows the collector acknowledged more than `retention`
+    /// before `now`, a chunk at a time. Rows not yet delivered are never
+    /// deleted, however old. Rows acknowledged without a delivery time (by a
+    /// release before 1.7.1) get `now` as theirs first. Returns the rows deleted.
+    pub fn prune_delivered(
+        &self,
+        retention: std::time::Duration,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, String> {
+        let now = now.timestamp();
+        let retention = i64::try_from(retention.as_secs()).map_err(|_| "retention out of range")?;
+        let cutoff = now.saturating_sub(retention);
+        self.connection
+            .lock()
+            .map_err(|_| "state lock poisoned")?
+            .execute(
+                "UPDATE audit SET delivered_at=?1 WHERE delivered=1 AND delivered_at IS NULL",
+                [now],
+            )
+            .map_err(|_| "audit retention failed")?;
+        let mut deleted = 0;
+        loop {
+            let chunk = self
+                .connection
+                .lock()
+                .map_err(|_| "state lock poisoned")?
+                .execute(
+                    "DELETE FROM audit WHERE rowid IN (SELECT rowid FROM audit
+                     WHERE delivered=1 AND delivered_at IS NOT NULL AND delivered_at < ?1 LIMIT ?2)",
+                    params![cutoff, PRUNE_CHUNK],
+                )
+                .map_err(|_| "audit retention failed")?;
+            deleted += chunk as u64;
+            if (chunk as i64) < PRUNE_CHUNK {
+                return Ok(deleted);
+            }
+        }
     }
 }
 
@@ -438,6 +494,118 @@ mod tests {
             MIGRATIONS.len() as i64
         );
         assert_eq!(count(&path, "SELECT count(*) FROM audit"), 5);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    fn execute(path: &Path, sql: &str) {
+        Connection::open(path).unwrap().execute_batch(sql).unwrap();
+    }
+
+    const DAY: std::time::Duration = std::time::Duration::from_secs(86_400);
+
+    #[test]
+    fn retention_deletes_only_delivered_rows_past_the_window() {
+        let folder = folder();
+        let path = folder.join("state.db");
+        DurableState::initialize(&path).unwrap();
+        let store = DurableState::open(&path).unwrap();
+        for id in ["old", "recent", "pending"] {
+            store.audit(id, &serde_json::json!({"id": id})).unwrap();
+        }
+        store.acknowledge(&["old".into(), "recent".into()]).unwrap();
+        let now = chrono::Utc::now();
+        execute(
+            &path,
+            &format!(
+                "UPDATE audit SET delivered_at={} WHERE id='old';
+                 INSERT INTO audit(id,body,delivered) VALUES('acknowledged-by-1.7.0','{{}}',1);
+                 UPDATE audit SET body='{{}}' WHERE id='pending';",
+                (now - chrono::Duration::days(10)).timestamp()
+            ),
+        );
+        // A pending row is never deleted, however old the clock says it is.
+        assert_eq!(store.prune_delivered(7 * DAY, now).unwrap(), 1);
+        let ids = |path: &Path| -> Vec<String> {
+            let connection = Connection::open(path).unwrap();
+            let mut query = connection
+                .prepare("SELECT id FROM audit ORDER BY rowid")
+                .unwrap();
+            query
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        assert_eq!(ids(&path), ["recent", "pending", "acknowledged-by-1.7.0"]);
+        assert_eq!(
+            count(
+                &path,
+                "SELECT count(*) FROM audit WHERE delivered_at IS NULL AND delivered=1"
+            ),
+            0,
+            "a row acknowledged without a time starts its retention now"
+        );
+        assert_eq!(store.prune_delivered(7 * DAY, now).unwrap(), 0);
+        let later = now + chrono::Duration::days(8);
+        assert_eq!(store.prune_delivered(7 * DAY, later).unwrap(), 2);
+        assert_eq!(ids(&path), ["pending"]);
+        assert_eq!(store.stats().unwrap().0, 1);
+        assert_eq!(
+            store.pending_audit().unwrap()[0]["id"],
+            "pending",
+            "the undelivered row is still delivered"
+        );
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    #[test]
+    fn retention_deletes_a_large_delivered_backlog_in_chunks() {
+        let folder = folder();
+        let path = folder.join("state.db");
+        DurableState::initialize(&path).unwrap();
+        let store = DurableState::open(&path).unwrap();
+        let rows = 2 * PRUNE_CHUNK + 17;
+        execute(
+            &path,
+            &format!(
+                "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<{rows})
+                 INSERT INTO audit(id,body,delivered,delivered_at) SELECT 'e'||i,'{{}}',1,0 FROM n;
+                 INSERT INTO audit(id,body) VALUES('pending','{{}}');"
+            ),
+        );
+        assert_eq!(
+            store.prune_delivered(DAY, chrono::Utc::now()).unwrap(),
+            rows as u64
+        );
+        assert_eq!(count(&path, "SELECT count(*) FROM audit"), 1);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    #[test]
+    fn rows_a_1_7_0_store_delivered_are_kept_a_full_window_after_the_upgrade() {
+        let folder = folder();
+        let path = folder.join("state.db");
+        store_1_7_0(&path);
+        let store = DurableState::open(&path).unwrap();
+        let upgraded = chrono::Utc::now();
+        assert_eq!(store.prune_delivered(7 * DAY, upgraded).unwrap(), 0);
+        assert_eq!(
+            store
+                .prune_delivered(7 * DAY, upgraded + chrono::Duration::days(6))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .prune_delivered(7 * DAY, upgraded + chrono::Duration::days(8))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            count(&path, "SELECT count(*) FROM audit WHERE delivered=0"),
+            3
+        );
+        assert_eq!(count(&path, "SELECT count(*) FROM audit"), 3);
         std::fs::remove_dir_all(folder).ok();
     }
 
