@@ -36,18 +36,30 @@ struct Migration {
 /// The migration ladder. Append only: never edit, renumber or remove an
 /// entry that has been released. Each one must be additive (new tables,
 /// columns with defaults or NULL, indexes) and must never delete rows.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 2,
-    name: "audit delivery time",
-    // When the collector acknowledged a row (Unix seconds). NULL for rows
-    // acknowledged before this migration, or by a previous release after a
-    // rollback: their retention starts when pruning first sees them.
-    sql: "ALTER TABLE audit ADD COLUMN delivered_at INTEGER;
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 2,
+        name: "audit delivery time",
+        // When the collector acknowledged a row (Unix seconds). NULL for rows
+        // acknowledged before this migration, or by a previous release after a
+        // rollback: their retention starts when pruning first sees them.
+        sql: "ALTER TABLE audit ADD COLUMN delivered_at INTEGER;
           CREATE INDEX audit_retention ON audit(delivered, delivered_at);",
-}];
+    },
+    Migration {
+        version: 3,
+        name: "audit record time",
+        // When the row was written (Unix seconds), for retention without a
+        // collector. NULL for rows written before this migration, or by a
+        // previous release after a rollback: their retention starts when pruning
+        // first sees them.
+        sql: "ALTER TABLE audit ADD COLUMN recorded_at INTEGER;
+          CREATE INDEX audit_age ON audit(recorded_at);",
+    },
+];
 
-/// Delivered audit rows removed per statement, so pruning never holds the
-/// store's lock for long.
+/// Audit rows removed per statement, so pruning never holds the store's
+/// lock for long.
 const PRUNE_CHUNK: i64 = 1000;
 
 /// Apply every migration this store has not recorded, in order, in one
@@ -281,8 +293,8 @@ impl DurableState {
                 .lock()
                 .map_err(|_| "state lock poisoned")?
                 .execute(
-                    "INSERT INTO audit(id,body) VALUES(?1,?2)",
-                    params![id, body],
+                    "INSERT INTO audit(id,body,recorded_at) VALUES(?1,?2,?3)",
+                    params![id, body, chrono::Utc::now().timestamp()],
                 )
                 .map_err(|_| "durable audit write failed")?;
             Ok(())
@@ -342,16 +354,50 @@ impl DurableState {
         retention: std::time::Duration,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<u64, String> {
+        self.prune(
+            retention,
+            now,
+            "UPDATE audit SET delivered_at=?1 WHERE delivered=1 AND delivered_at IS NULL",
+            "DELETE FROM audit WHERE rowid IN (SELECT rowid FROM audit
+             WHERE delivered=1 AND delivered_at IS NOT NULL AND delivered_at < ?1 LIMIT ?2)",
+        )
+    }
+
+    /// Delete every audit row written more than `retention` before `now`,
+    /// delivered or not, a chunk at a time. Only for a store without a
+    /// collector, where rows can never be delivered and the store is a bounded
+    /// local log. Rows written without a time (before 1.7.1) get `now` as
+    /// theirs first. Returns the rows deleted.
+    pub fn prune_recorded(
+        &self,
+        retention: std::time::Duration,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<u64, String> {
+        self.prune(
+            retention,
+            now,
+            "UPDATE audit SET recorded_at=?1 WHERE recorded_at IS NULL",
+            "DELETE FROM audit WHERE rowid IN (SELECT rowid FROM audit
+             WHERE recorded_at IS NOT NULL AND recorded_at < ?1 LIMIT ?2)",
+        )
+    }
+
+    /// Stamp rows without a time with `now`, then delete rows older than the
+    /// cutoff in chunks of [`PRUNE_CHUNK`].
+    fn prune(
+        &self,
+        retention: std::time::Duration,
+        now: chrono::DateTime<chrono::Utc>,
+        stamp: &str,
+        delete: &str,
+    ) -> Result<u64, String> {
         let now = now.timestamp();
         let retention = i64::try_from(retention.as_secs()).map_err(|_| "retention out of range")?;
         let cutoff = now.saturating_sub(retention);
         self.connection
             .lock()
             .map_err(|_| "state lock poisoned")?
-            .execute(
-                "UPDATE audit SET delivered_at=?1 WHERE delivered=1 AND delivered_at IS NULL",
-                [now],
-            )
+            .execute(stamp, [now])
             .map_err(|_| "audit retention failed")?;
         let mut deleted = 0;
         loop {
@@ -359,11 +405,7 @@ impl DurableState {
                 .connection
                 .lock()
                 .map_err(|_| "state lock poisoned")?
-                .execute(
-                    "DELETE FROM audit WHERE rowid IN (SELECT rowid FROM audit
-                     WHERE delivered=1 AND delivered_at IS NOT NULL AND delivered_at < ?1 LIMIT ?2)",
-                    params![cutoff, PRUNE_CHUNK],
-                )
+                .execute(delete, params![cutoff, PRUNE_CHUNK])
                 .map_err(|_| "audit retention failed")?;
             deleted += chunk as u64;
             if (chunk as i64) < PRUNE_CHUNK {
@@ -606,6 +648,63 @@ mod tests {
             3
         );
         assert_eq!(count(&path, "SELECT count(*) FROM audit"), 3);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    #[test]
+    fn without_a_collector_rows_older_than_the_window_are_deleted_delivered_or_not() {
+        let folder = folder();
+        let path = folder.join("state.db");
+        DurableState::initialize(&path).unwrap();
+        let store = DurableState::open(&path).unwrap();
+        for id in ["old-pending", "old-delivered", "recent-pending"] {
+            store.audit(id, &serde_json::json!({"id": id})).unwrap();
+        }
+        store.acknowledge(&["old-delivered".into()]).unwrap();
+        let now = chrono::Utc::now();
+        execute(
+            &path,
+            &format!(
+                "UPDATE audit SET recorded_at={} WHERE id LIKE 'old-%';
+                 INSERT INTO audit(id,body) VALUES('written-by-1.7.0','{{}}');",
+                (now - chrono::Duration::days(10)).timestamp()
+            ),
+        );
+        assert_eq!(store.prune_recorded(7 * DAY, now).unwrap(), 2);
+        assert_eq!(
+            count(
+                &path,
+                "SELECT count(*) FROM audit WHERE recorded_at IS NULL"
+            ),
+            0,
+            "a row written without a time starts its retention now"
+        );
+        let later = now + chrono::Duration::days(8);
+        assert_eq!(store.prune_recorded(7 * DAY, later).unwrap(), 2);
+        assert_eq!(count(&path, "SELECT count(*) FROM audit"), 0);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    #[test]
+    fn rows_a_1_7_0_store_wrote_are_kept_a_full_window_after_the_upgrade_without_a_collector() {
+        let folder = folder();
+        let path = folder.join("state.db");
+        store_1_7_0(&path);
+        let store = DurableState::open(&path).unwrap();
+        let upgraded = chrono::Utc::now();
+        assert_eq!(store.prune_recorded(7 * DAY, upgraded).unwrap(), 0);
+        assert_eq!(
+            store
+                .prune_recorded(7 * DAY, upgraded + chrono::Duration::days(6))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .prune_recorded(7 * DAY, upgraded + chrono::Duration::days(8))
+                .unwrap(),
+            5
+        );
         std::fs::remove_dir_all(folder).ok();
     }
 

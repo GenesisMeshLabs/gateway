@@ -78,13 +78,22 @@ Storage write failure latches not-ready and denies protected requests.
 
 The database is capped at 262144 SQLite pages (1 GiB with its default 4 KiB
 pages); reserve additional capacity for WAL, backups and filesystem overhead.
-Rows not yet acknowledged by the collector are never deleted. Acknowledged rows
-are kept locally for `GATEWAY_AUDIT_RETENTION_DAYS` (default 7, 0 to 3650;
-0 keeps them) after their acknowledgement, then deleted by the delivery task
-(every ten minutes, a thousand rows per statement) (1.7.1). Rows acknowledged
-before 1.7.1 count from the first pass after the upgrade. Without a collector
-nothing is acknowledged, so nothing is deleted. Freed pages are reused, so
-`gateway_state_bytes` stops growing rather than shrinking. `/metrics` exposes
+Retention is `GATEWAY_AUDIT_RETENTION_DAYS` (default 7, 0 to 3650; 0 keeps
+every row) and depends on whether a collector is configured (1.7.1). Startup
+logs which rule applies.
+
+- With `GATEWAY_AUDIT_URL` set, rows not yet acknowledged by the collector are
+  never deleted. Acknowledged rows are kept locally for the retention period
+  after their acknowledgement, then deleted.
+- Without a collector rows can never be delivered, so the store is a bounded
+  local log: every row is deleted the retention period after it was written,
+  delivered or not. Keep a copy elsewhere (stdout logs, a backup) if you need
+  a longer record.
+
+Pruning runs every ten minutes, a thousand rows per statement. Rows written or
+acknowledged before 1.7.1 have no time and count from the first pass after the
+upgrade. Freed pages are reused, so `gateway_state_bytes` stops growing rather
+than shrinking. `/metrics` exposes
 `gateway_audit_pending` and `gateway_state_bytes`. Monitor volume use and
 archive through a controlled SQLite backup before capacity exhaustion. The limit
 causes fail-closed write errors, not silent event loss. Size storage and

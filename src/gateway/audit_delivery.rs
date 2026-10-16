@@ -12,17 +12,73 @@ struct Collector {
     token: Option<String>,
 }
 
-/// Pause between retention passes over delivered rows.
+/// Pause between retention passes.
 const PRUNE_INTERVAL: Duration = Duration::from_secs(600);
 
+/// What happens to durable audit rows on this replica.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Retention {
+    /// Rows are kept until an operator archives them.
+    Keep,
+    /// With a collector: rows it acknowledged are deleted after this long;
+    /// undelivered rows are never deleted.
+    Delivered(Duration),
+    /// Without a collector rows can never be delivered, so the store is a
+    /// bounded local log: every row is deleted this long after it was written.
+    Recorded(Duration),
+}
+
+fn retention_mode(collector: bool, retention: Option<Duration>) -> Retention {
+    match (collector, retention) {
+        (_, None) => Retention::Keep,
+        (true, Some(window)) => Retention::Delivered(window),
+        (false, Some(window)) => Retention::Recorded(window),
+    }
+}
+
+fn describe(collector: bool, mode: Retention) -> String {
+    let delivery = if collector {
+        "delivered to the collector"
+    } else {
+        "no collector (GATEWAY_AUDIT_URL unset)"
+    };
+    let days = |window: Duration| window.as_secs() / 86_400;
+    match mode {
+        Retention::Keep => format!("durable audit: {delivery}; rows are kept (GATEWAY_AUDIT_RETENTION_DAYS=0)"),
+        Retention::Delivered(window) => format!(
+            "durable audit: {delivery}; delivered rows are deleted {} days after delivery, undelivered rows are kept",
+            days(window)
+        ),
+        Retention::Recorded(window) => format!(
+            "durable audit: {delivery}; the store is a bounded local log and rows are deleted {} days after they are written, delivered or not",
+            days(window)
+        ),
+    }
+}
+
 /// Deliver pending audit events to `GATEWAY_AUDIT_URL`, if it is set, and
-/// delete delivered rows older than `retention` (`None` keeps them).
+/// apply the retention `retention` (`None` keeps rows): with a collector to
+/// delivered rows only, without one to every row.
 pub(super) fn start(
     store: Option<Arc<DurableState>>,
     retention: Option<Duration>,
 ) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
-    let Ok(url) = std::env::var("GATEWAY_AUDIT_URL") else {
-        return Ok(None);
+    let url = std::env::var("GATEWAY_AUDIT_URL").ok();
+    let Some(url) = url else {
+        let Some(store) = store else {
+            return Ok(None);
+        };
+        let mode = retention_mode(false, retention);
+        tracing::info!("{}", describe(false, mode));
+        if mode == Retention::Keep {
+            return Ok(None);
+        }
+        return Ok(Some(tokio::spawn(async move {
+            loop {
+                prune(&store, mode).await;
+                tokio::time::sleep(PRUNE_INTERVAL).await;
+            }
+        })));
     };
     let parsed = reqwest::Url::parse(&url).map_err(|_| "invalid audit collector URL")?;
     if parsed.scheme() != "https"
@@ -46,31 +102,36 @@ pub(super) fn start(
         url,
         token,
     };
+    let mode = retention_mode(true, retention);
+    tracing::info!("{}", describe(true, mode));
     Ok(Some(tokio::spawn(async move {
         let mut pruned: Option<std::time::Instant> = None;
         loop {
             drain(&store, &collector).await;
-            if let Some(retention) = retention {
-                if pruned.is_none_or(|at| at.elapsed() >= PRUNE_INTERVAL) {
-                    prune(&store, retention).await;
-                    pruned = Some(std::time::Instant::now());
-                }
+            if mode != Retention::Keep && pruned.is_none_or(|at| at.elapsed() >= PRUNE_INTERVAL) {
+                prune(&store, mode).await;
+                pruned = Some(std::time::Instant::now());
             }
             tokio::time::sleep(DELIVERY_INTERVAL).await;
         }
     })))
 }
 
-/// Delete delivered rows past retention. A failure is logged and retried at
-/// the next pass; it never touches undelivered rows or readiness.
-async fn prune(store: &Arc<DurableState>, retention: Duration) {
+/// Apply one retention pass. A failure is logged and retried at the next
+/// pass; it never touches readiness.
+async fn prune(store: &Arc<DurableState>, mode: Retention) {
     let store = store.clone();
-    match tokio::task::spawn_blocking(move || store.prune_delivered(retention, chrono::Utc::now()))
-        .await
-    {
+    let now = chrono::Utc::now();
+    let result = tokio::task::spawn_blocking(move || match mode {
+        Retention::Keep => Ok(0),
+        Retention::Delivered(window) => store.prune_delivered(window, now),
+        Retention::Recorded(window) => store.prune_recorded(window, now),
+    })
+    .await;
+    match result {
         Ok(Ok(0)) => {}
-        Ok(Ok(deleted)) => tracing::info!(deleted, "delivered audit rows past retention deleted"),
-        _ => tracing::warn!("delivered audit retention failed; retrying at the next pass"),
+        Ok(Ok(deleted)) => tracing::info!(deleted, "durable audit rows past retention deleted"),
+        _ => tracing::warn!("durable audit retention failed; retrying at the next pass"),
     }
 }
 
@@ -217,6 +278,56 @@ mod tests {
         // Nothing pending: one read, no post.
         assert_eq!(drain(&store, &collector).await, 0);
         assert_eq!(posts.load(Ordering::SeqCst), 3);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    const WEEK: Duration = Duration::from_secs(7 * 86_400);
+
+    #[test]
+    fn the_retention_mode_follows_the_collector_setting() {
+        assert_eq!(retention_mode(true, Some(WEEK)), Retention::Delivered(WEEK));
+        assert_eq!(retention_mode(false, Some(WEEK)), Retention::Recorded(WEEK));
+        assert_eq!(retention_mode(true, None), Retention::Keep);
+        assert_eq!(retention_mode(false, None), Retention::Keep);
+        assert!(describe(false, Retention::Recorded(WEEK))
+            .contains("deleted 7 days after they are written, delivered or not"));
+        assert!(describe(true, Retention::Delivered(WEEK)).contains("undelivered rows are kept"));
+    }
+
+    /// Rows written ten days ago: one delivered, one never delivered.
+    fn aged_store() -> (Arc<DurableState>, std::path::PathBuf) {
+        let (store, folder) = store_with(2);
+        store.acknowledge(&["event-0000".into()]).unwrap();
+        let old = (chrono::Utc::now() - chrono::Duration::days(10)).timestamp();
+        rusqlite::Connection::open(folder.join("state.db"))
+            .unwrap()
+            .execute(
+                "UPDATE audit SET recorded_at=?1, delivered_at=CASE WHEN delivered=1 THEN ?1 END",
+                [old],
+            )
+            .unwrap();
+        (store, folder)
+    }
+
+    #[tokio::test]
+    async fn with_a_collector_retention_never_deletes_an_undelivered_row() {
+        let (store, folder) = aged_store();
+        prune(&store, retention_mode(true, Some(WEEK))).await;
+        let pending = store.pending_audit().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["id"], "event-0001");
+        assert_eq!(store.stats().unwrap().0, 1);
+        std::fs::remove_dir_all(folder).ok();
+    }
+
+    #[tokio::test]
+    async fn without_a_collector_retention_deletes_old_rows_delivered_or_not() {
+        let (store, folder) = aged_store();
+        store.audit("recent", &json!({"n": "recent"})).unwrap();
+        prune(&store, retention_mode(false, Some(WEEK))).await;
+        let pending = store.pending_audit().unwrap();
+        assert_eq!(pending.len(), 1, "{pending:?}");
+        assert_eq!(pending[0]["id"], "recent");
         std::fs::remove_dir_all(folder).ok();
     }
 
