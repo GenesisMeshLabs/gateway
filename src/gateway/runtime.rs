@@ -54,6 +54,8 @@ pub(super) struct Metrics {
     pub requests: AtomicU64,
     pub failures: AtomicU64,
     pub denied: AtomicU64,
+    /// Requests by public demo clients, which are not durably audited.
+    pub demo: AtomicU64,
     latency_us: AtomicU64,
     completed: AtomicU64,
     buckets: [AtomicU64; 8],
@@ -317,6 +319,10 @@ pub(super) async fn metrics(
         "# TYPE gateway_requests_total counter\ngateway_requests_total {}\n# TYPE gateway_failures_total counter\ngateway_failures_total {}\n# TYPE gateway_denied_total counter\ngateway_denied_total {}\n# TYPE gateway_crypto_active gauge\ngateway_crypto_active {}\n",
         m.requests.load(Ordering::Relaxed), m.failures.load(Ordering::Relaxed), m.denied.load(Ordering::Relaxed), state.cfg.cpu_workers - state.workers.available_permits()
     );
+    output.push_str(&format!(
+        "# TYPE gateway_demo_requests_total counter\ngateway_demo_requests_total {}\n",
+        m.demo.load(Ordering::Relaxed)
+    ));
     output.push_str("# TYPE gateway_request_duration_seconds histogram\n");
     if let Some((pending, bytes)) = durable_stats {
         output.push_str(&format!("# TYPE gateway_audit_pending gauge\ngateway_audit_pending {pending}\n# TYPE gateway_state_bytes gauge\ngateway_state_bytes {bytes}\n"));

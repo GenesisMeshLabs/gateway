@@ -70,12 +70,25 @@ pub(super) async fn auth(
         }
     }
     // Every request that reaches a guarded route is durably audited, denials
-    // included, before it does any work.
-    let trail = req
-        .extensions()
-        .get::<super::runtime::AuditTrail>()
-        .cloned();
-    super::runtime::begin_audit(&state, trail.as_ref()).await?;
+    // included, before it does any work, except a public demo client's: its
+    // token is published, so its traffic would fill the store (which then
+    // fails closed for every client). Demo requests are logged and counted.
+    let demo = matches!(
+        (&security, identity.as_ref().and_then(|p| p.0)),
+        (Some(policy), Some(i)) if policy.clients[i].demo
+    );
+    if demo {
+        state
+            .metrics
+            .demo
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    } else {
+        let trail = req
+            .extensions()
+            .get::<super::runtime::AuditTrail>()
+            .cloned();
+        super::runtime::begin_audit(&state, trail.as_ref()).await?;
+    }
     let Some(principal) = identity else {
         state
             .metrics

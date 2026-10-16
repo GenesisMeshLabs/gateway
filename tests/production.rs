@@ -2878,3 +2878,80 @@ async fn public_mesh_marks_failed_upstreams_and_coalesces_refreshes() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 4);
     task.abort();
 }
+
+/// The demo token is published: its requests are counted, not written to
+/// the durable audit store, which anyone could otherwise fill until every
+/// client gets 503 (1.7.1). Every other client is still audited.
+#[tokio::test]
+async fn demo_requests_are_counted_but_not_durably_audited() {
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-demo-audit-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    DurableState::initialize(&path).unwrap();
+    let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
+    let (mut cfg, cert, _) = fixture();
+    cfg.security.as_mut().unwrap().clients[0].metrics = true;
+    let mut cfg = with_demo(cfg, demo_client());
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    cfg.durable = Some(durable.clone());
+    let app = router(cfg);
+
+    assert_eq!(
+        call(&app, "/v1/networks", None, Some(DEMO_TOKEN)).await.0,
+        StatusCode::OK
+    );
+    let (status, result) = call(
+        &app,
+        "/verify",
+        Some(json!({"certificate":cert})),
+        Some(DEMO_TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert!(
+        durable.pending_audit().unwrap().is_empty(),
+        "demo requests were written to the durable audit"
+    );
+
+    assert_eq!(
+        call(&app, "/v1/networks", None, Some(TOKEN)).await.0,
+        StatusCode::OK
+    );
+    let pending = durable.pending_audit().unwrap();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(
+        pending[1]["event"]["context"]["client_id"],
+        "agency-service"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let metrics = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(
+        metrics.contains("gateway_demo_requests_total 2\n"),
+        "{metrics}"
+    );
+    drop(app);
+    drop(durable);
+    std::fs::remove_dir_all(folder).ok();
+}

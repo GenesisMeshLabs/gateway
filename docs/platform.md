@@ -60,7 +60,11 @@ assets, `/openapi.json`, the public mesh view and unknown paths are logged
 only, so anonymous traffic cannot fill the store (v1.1.0). The router decides
 this: every route registered behind client authentication is recorded, and no
 other (1.7.1). Unknown paths, including the development routes in production,
-answer 404 without authentication and are not charged to a client quota. Raw credentials, request bodies, node
+answer 404 without authentication and are not charged to a client quota.
+Requests by a public demo client (`demo: true`, whose token `/v1/demo`
+publishes) are logged but not written to the durable store, so the published
+token cannot fill it; `/metrics` counts them as `gateway_demo_requests_total`
+(1.7.1). Raw credentials, request bodies, node
 keys, URL queries and certificate contents are excluded. Operator-selected
 client IDs must not contain personal data. An intent without completion means
 an uncertain outcome; inspect authority state before retrying a mutation.
