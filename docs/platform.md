@@ -61,6 +61,12 @@ only, so anonymous traffic cannot fill the store (v1.1.0). The router decides
 this: every route registered behind client authentication is recorded, and no
 other (1.7.1). Unknown paths, including the development routes in production,
 answer 404 without authentication and are not charged to a client quota.
+A request to a recorded route without a valid credential (no token, an unknown
+token, or an OIDC subject bound to no client) is answered 401 and logged, but
+not written to the durable store, since anyone can send one; `/metrics` counts
+it as `gateway_unauthenticated_requests_total` by route (1.7.1). Every
+authenticated request to these routes is recorded, including those refused by
+scope or quota.
 Requests by a public demo client (`demo: true`, whose token `/v1/demo`
 publishes) are logged but not written to the durable store, so the published
 token cannot fill it; `/metrics` counts them as `gateway_demo_requests_total`

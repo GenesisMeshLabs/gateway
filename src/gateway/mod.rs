@@ -315,46 +315,80 @@ mod tests {
     }
 
     /// Every route registered behind authentication writes its started and
-    /// completed events, labelled with the route template, whether the
-    /// request is admitted or denied; no open route writes anything.
+    /// completed events for an authenticated request, labelled with the route
+    /// template; a request without a valid credential writes nothing and is
+    /// counted by route; no open route writes anything.
     #[tokio::test]
     async fn every_guarded_route_writes_started_and_completed_audit_events() {
         let (app, store, folder) = audited_router();
         let guarded = guarded_routes(true);
         assert!(guarded.len() >= 7, "guarded routes went missing");
         for (template, _) in &guarded {
-            for token in [None, Some(TOKEN)] {
-                let method = if template.starts_with("/v1/networks/")
-                    || *template == "/metrics"
-                    || *template == "/v1/networks"
-                {
-                    "GET"
-                } else {
-                    "POST"
-                };
-                let status = send(&app, method, &concrete(template), token).await;
-                if token.is_none() {
-                    assert_eq!(status, StatusCode::UNAUTHORIZED, "{template}");
-                }
-                let events = store.pending_audit().unwrap();
-                assert_eq!(events.len(), 2, "{template} (token: {})", token.is_some());
-                let (started, completed) = (&events[0], &events[1]);
-                assert_eq!(started["event"]["phase"], "started", "{template}");
-                assert_eq!(started["event"]["route"], *template);
-                assert_eq!(started["event"]["method"], method);
-                assert_eq!(completed["event"]["phase"], "completed", "{template}");
-                assert_eq!(completed["event"]["status"], status.as_u16());
-                assert_eq!(
-                    started["event"]["request_id"],
-                    completed["event"]["request_id"]
-                );
-                let ids: Vec<String> = events
-                    .iter()
-                    .map(|e| e["id"].as_str().unwrap().to_owned())
-                    .collect();
-                store.acknowledge(&ids).unwrap();
-            }
+            let method = if template.starts_with("/v1/networks/")
+                || *template == "/metrics"
+                || *template == "/v1/networks"
+            {
+                "GET"
+            } else {
+                "POST"
+            };
+            let status = send(&app, method, &concrete(template), None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{template}");
+            assert!(
+                store.pending_audit().unwrap().is_empty(),
+                "{template}: an unauthenticated request was stored"
+            );
+            let status = send(&app, method, &concrete(template), Some(TOKEN)).await;
+            let events = store.pending_audit().unwrap();
+            assert_eq!(events.len(), 2, "{template}");
+            let (started, completed) = (&events[0], &events[1]);
+            assert_eq!(started["event"]["phase"], "started", "{template}");
+            assert_eq!(started["event"]["route"], *template);
+            assert_eq!(started["event"]["method"], method);
+            assert_eq!(completed["event"]["phase"], "completed", "{template}");
+            assert_eq!(completed["event"]["status"], status.as_u16());
+            assert_eq!(
+                started["event"]["request_id"],
+                completed["event"]["request_id"]
+            );
+            let ids: Vec<String> = events
+                .iter()
+                .map(|e| e["id"].as_str().unwrap().to_owned())
+                .collect();
+            store.acknowledge(&ids).unwrap();
         }
+        let metrics = axum::body::to_bytes(
+            app.clone()
+                .oneshot(
+                    Request::builder()
+                        .uri("/metrics")
+                        .header("authorization", format!("Bearer {TOKEN}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .into_body(),
+            1 << 20,
+        )
+        .await
+        .unwrap();
+        let metrics = String::from_utf8(metrics.to_vec()).unwrap();
+        for (template, _) in &guarded {
+            assert!(
+                metrics.contains(&format!(
+                    "gateway_unauthenticated_requests_total{{route=\"{template}\"}} 1\n"
+                )),
+                "{template}: {metrics}"
+            );
+        }
+        let ids: Vec<String> = store
+            .pending_audit()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_str().unwrap().to_owned())
+            .collect();
+        store.acknowledge(&ids).unwrap();
         for (path, _) in open_routes() {
             send(&app, "GET", path, None).await;
             send(&app, "GET", path, Some(TOKEN)).await;

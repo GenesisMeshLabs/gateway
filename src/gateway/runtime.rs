@@ -56,9 +56,20 @@ pub(super) struct Metrics {
     pub denied: AtomicU64,
     /// Requests by public demo clients, which are not durably audited.
     pub demo: AtomicU64,
+    /// Requests to guarded routes without a valid credential, by route
+    /// template (a bounded set), which are not durably audited.
+    unauthenticated: Mutex<std::collections::BTreeMap<String, u64>>,
     latency_us: AtomicU64,
     completed: AtomicU64,
     buckets: [AtomicU64; 8],
+}
+
+impl Metrics {
+    pub(super) fn count_unauthenticated(&self, route: &str) {
+        if let Ok(mut counts) = self.unauthenticated.lock() {
+            *counts.entry(route.to_owned()).or_default() += 1;
+        }
+    }
 }
 
 impl AppState {
@@ -88,9 +99,10 @@ impl AppState {
 }
 
 /// The durable audit record of one request. `observe` creates it for every
-/// request; only the guarded sub-router's `auth` layer starts it, so exactly
-/// the routes registered behind authentication are written to the durable
-/// store, and the router alone decides which routes those are. Public pages,
+/// request; only the guarded sub-router's `auth` layer starts it, for an
+/// authenticated request, so exactly the routes registered behind
+/// authentication are written to the durable store, and the router alone
+/// decides which routes those are. Public pages,
 /// probes, static assets, the published specification, the public mesh view
 /// and unknown paths are logged only: anyone could otherwise fill the store,
 /// which fails closed (every request then answers 503) (v1.1.0).
@@ -117,6 +129,11 @@ impl AuditTrail {
             started: std::sync::atomic::AtomicBool::new(false),
             permit: Mutex::new(None),
         }))
+    }
+
+    /// The matched route template.
+    pub(super) fn route(&self) -> &str {
+        &self.0.route
     }
 
     fn is_started(&self) -> bool {
@@ -323,6 +340,14 @@ pub(super) async fn metrics(
         "# TYPE gateway_demo_requests_total counter\ngateway_demo_requests_total {}\n",
         m.demo.load(Ordering::Relaxed)
     ));
+    output.push_str("# TYPE gateway_unauthenticated_requests_total counter\n");
+    if let Ok(counts) = m.unauthenticated.lock() {
+        for (route, count) in counts.iter() {
+            output.push_str(&format!(
+                "gateway_unauthenticated_requests_total{{route=\"{route}\"}} {count}\n"
+            ));
+        }
+    }
     output.push_str("# TYPE gateway_request_duration_seconds histogram\n");
     if let Some((pending, bytes)) = durable_stats {
         output.push_str(&format!("# TYPE gateway_audit_pending gauge\ngateway_audit_pending {pending}\n# TYPE gateway_state_bytes gauge\ngateway_state_bytes {bytes}\n"));

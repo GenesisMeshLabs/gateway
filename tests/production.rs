@@ -423,6 +423,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
     DurableState::initialize(&path).unwrap();
     let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
     let (mut cfg, _, _) = fixture();
+    cfg.security.as_mut().unwrap().clients[0].metrics = true;
     durable.restore(cfg.security.as_mut().unwrap()).unwrap();
     cfg.durable = Some(durable.clone());
     let app = router(cfg);
@@ -468,9 +469,28 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
     }
 
+    // Requests to a guarded route without a valid credential are logged and
+    // counted, never stored: anyone can send them (1.7.1; 1.7.0 stored them).
+    let unknown = "an-unknown-token-that-is-at-least-32-bytes-long";
+    for token in [None, Some(unknown)] {
+        assert_eq!(
+            call(&app, "/v1/networks", None, token).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, "/verify", Some(json!({})), token).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert!(
+        durable.pending_audit().unwrap().is_empty(),
+        "unauthenticated requests were written to the durable audit"
+    );
+
+    // An authenticated request is stored, started and completed.
     assert_eq!(
-        call(&app, "/v1/networks", None, None).await.0,
-        StatusCode::UNAUTHORIZED
+        call(&app, "/v1/networks", None, Some(TOKEN)).await.0,
+        StatusCode::OK
     );
     let pending = durable.pending_audit().unwrap();
     let phases: Vec<_> = pending
@@ -479,6 +499,40 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         .collect();
     assert_eq!(phases, vec![json!("started"), json!("completed")]);
     assert_eq!(pending[0]["event"]["route"], "/v1/networks");
+    assert_eq!(
+        pending[1]["event"]["context"]["client_id"],
+        "agency-service"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let metrics = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    for route in ["/v1/networks", "/verify"] {
+        assert!(
+            metrics.contains(&format!(
+                "gateway_unauthenticated_requests_total{{route=\"{route}\"}} 2\n"
+            )),
+            "{metrics}"
+        );
+    }
     std::fs::remove_dir_all(folder).ok();
 }
 
