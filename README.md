@@ -85,9 +85,13 @@ and `/issue`; never use it for a public production service. The standalone
 ```sh
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo test --locked --all-targets
+cargo test --locked --doc
+for t in tools/test_ui_*.mjs; do node "$t" || break; done
 cargo build --locked --release --bin genesis-mesh-gateway
 ```
+
+See [CONTRIBUTING](CONTRIBUTING.md) for the module map and pull request rules.
 
 See [the implemented improvement plan](docs/improvement-plan.md) and
 [deployment, security boundaries and remaining rollout gates](docs/operations.md).

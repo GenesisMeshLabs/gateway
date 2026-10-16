@@ -9,7 +9,8 @@
 //! * [`canonical`] — canonical JSON, the exact bytes that get signed.
 //! * [`models`] — join certificates, service manifests, revocation lists.
 //! * [`trust`] — evaluating a certificate into an actionable [`trust::Decision`].
-//! * [`gateway`] — the JSON API: `keygen`, `issue`, `verify`, `verify/batch`.
+//! * [`gateway`] — the HTTP gateway: scoped forwarding of the authority
+//!   catalog, `verify` and `verify/batch`, the console, durable state and audit.
 //!
 //! # Interoperability
 //!

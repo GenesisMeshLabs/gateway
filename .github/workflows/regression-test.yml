@@ -1,0 +1,34 @@
+name: Regression test
+# Quality gate: a pull request titled fix: or fix(...): that changes source
+# must change a test, unless the Maintainer labels it no-test-needed. The
+# title and labels reach the script only through the environment.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  merge_group:
+permissions:
+  contents: read
+jobs:
+  regression-test:
+    name: Regression test
+    runs-on: ubuntu-latest
+    steps:
+      - name: The merge queue relies on the pull request's check
+        if: github.event_name == 'merge_group'
+        run: echo "Checked on the pull request."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The check's own cases
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/test_regression_test.sh
+      - name: A fix carries the test that fails without it
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/regression_test.sh

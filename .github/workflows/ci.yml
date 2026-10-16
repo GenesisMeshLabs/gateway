@@ -4,6 +4,8 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  # The merge queue tests each PR on top of main and what is ahead of it.
+  merge_group:
 permissions:
   contents: read
 jobs:
@@ -18,13 +20,21 @@ jobs:
         with: {node-version: "24"}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: {python-version: "3.12"}
-      - run: node tools/test_ui_signing.mjs
-      - run: node tools/test_ui_errors.mjs
-      - run: node tools/test_ui_tour.mjs
-      - run: node tools/test_ui_remediation.mjs
-      - run: node tools/test_ui_keys.mjs
-      - run: node tools/test_ui_grants.mjs
-      - run: node tools/test_ui_edge.mjs
+      # Every console test file runs; finding none is a failure, not a pass.
+      - name: Console tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(tools/test_ui_*.mjs)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo "::error::No console tests (tools/test_ui_*.mjs) found."
+            exit 1
+          fi
+          for test in "${tests[@]}"; do
+            echo "== $test"
+            node "$test"
+          done
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
@@ -33,7 +43,16 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked --all-targets
       - run: cargo test --locked --doc
-      - run: cargo test --locked --features serde_json/preserve_order --lib canonical::tests
+      # A filter that matches no test passes silently: require that some ran.
+      - name: Canonical JSON tests with serde_json preserve_order
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --features serde_json/preserve_order --lib canonical::tests 2>&1 | tee canonical.log
+          if ! grep -Eq 'test result: ok\. [1-9][0-9]* passed' canonical.log; then
+            echo "::error::The canonical::tests filter ran no test."
+            exit 1
+          fi
       - run: cargo build --locked --release --bin genesis-mesh-gateway
   container:
     name: Gateway image with the Network Authority image on ${{ matrix.arch }}
@@ -67,13 +86,9 @@ jobs:
           repository: GenesisMeshLabs/genesismesh
           ref: ${{ env.CORE_REF }}
           path: core
+      # Missing vectors or harness fail the job: skipped is not green.
       - name: The console's signing vectors are the core's
-        run: |
-          if [ -f core/conformance/vectors/admin_auth.json ]; then
-            cmp core/conformance/vectors/admin_auth.json tests/reference/admin_auth.json
-          else
-            echo "::notice::The core revision has no admin_auth vectors yet; skipped."
-          fi
+        run: cmp core/conformance/vectors/admin_auth.json tests/reference/admin_auth.json
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: {python-version: "3.14"}
       # BuildKit and the Dockerfile's base images (pinned by digest) come through
@@ -91,14 +106,45 @@ jobs:
           docker buildx build --load -t genesis-mesh-gateway:ci --build-arg VERSION="$version" --build-arg REVISION="$GITHUB_SHA" .
           docker buildx build --load -t genesis-mesh:ci --build-arg VERSION="$(tr -d '[:space:]' < core/VERSION)" core
       - name: Container smoke tests (gateway scenarios and the compose example)
+        env:
+          GM_E2E_REQUIRED: "1"
         run: |
           if [ ! -f core/scripts/container_smoke.py ]; then
-            echo "::notice::The core revision has no container smoke harness yet (it arrives with v1.1); skipped."
-            exit 0
+            echo "::error::The core revision $CORE_REF has no container smoke harness (core/scripts/container_smoke.py)."
+            exit 1
           fi
           python core/scripts/container_smoke.py --image genesis-mesh:ci --gateway-image genesis-mesh-gateway:ci \
             --compose-file core/deploy/compose/docker-compose.images.yml \
             --only gw-metadata --only gw-end-to-end --only gw-crl-refresh --only fed-two-sovereigns --only compose-example
+  # Stable names for the ruleset: each fails unless every matrix member passed.
+  verify-summary:
+    name: Verify
+    if: always()
+    needs: [verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every platform passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "verify: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then echo "::error::verify did not pass on every platform ($result)."; exit 1; fi
+          done
+  container-summary:
+    name: Network Authority end-to-end
+    if: always()
+    needs: [container]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every architecture passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "container: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != success ]; then echo "::error::The end-to-end run did not pass on every architecture ($result)."; exit 1; fi
+          done
   catalog:
     name: Authority catalog and signing vectors match the core
     runs-on: ubuntu-latest
@@ -149,9 +195,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with: {toolchain: stable}
-      - run: cargo test --locked --lib two_independent_replicas_share_one_atomic_allowance -- --ignored
+      # The test is #[ignore]d without Redis; here it must run, exactly once.
+      - name: Two replicas share one Redis allowance
         env:
           GATEWAY_TEST_REDIS_URL: redis://127.0.0.1:6379/
+          GM_E2E_REQUIRED: "1"
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib gateway::quota::tests::two_independent_replicas_share_one_atomic_allowance -- --ignored --exact 2>&1 | tee quota.log
+          if ! grep -q 'test result: ok. 1 passed' quota.log; then
+            echo "::error::The shared quota test did not run."
+            exit 1
+          fi
 
   release-train:
     runs-on: ubuntu-latest

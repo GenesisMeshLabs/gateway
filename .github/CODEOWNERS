@@ -1,0 +1,55 @@
+# Genesis Mesh gateway: code owners
+#
+# Review routing by area. The last matching pattern wins, so the catch-all
+# comes first and the specific areas follow. Every area is owned by the
+# maintainers team today; an area gains its own owners as contributors join.
+
+# Everything not listed below.
+*                                   @GenesisMeshLabs/maintainers
+
+# Security-critical: the trust library (canonical JSON, signatures, trust
+# evaluation, operator request signing) and the browser's signing code.
+/src/canonical.rs                   @GenesisMeshLabs/maintainers
+/src/crypto.rs                      @GenesisMeshLabs/maintainers
+/src/trust.rs                       @GenesisMeshLabs/maintainers
+/src/models.rs                      @GenesisMeshLabs/maintainers
+/src/federation.rs                  @GenesisMeshLabs/maintainers
+/src/admin_auth.rs                  @GenesisMeshLabs/maintainers
+/ui/signing.js                      @GenesisMeshLabs/maintainers
+/SECURITY.md                        @GenesisMeshLabs/maintainers
+
+# Security-critical: authentication, client policy, forwarding, quotas,
+# OIDC, TLS and the durable state and audit store (with its migrations).
+/src/gateway/security.rs            @GenesisMeshLabs/maintainers
+/src/gateway/handlers.rs            @GenesisMeshLabs/maintainers
+/src/gateway/services.rs            @GenesisMeshLabs/maintainers
+/src/gateway/runtime.rs             @GenesisMeshLabs/maintainers
+/src/gateway/oidc.rs                @GenesisMeshLabs/maintainers
+/src/gateway/quota.rs               @GenesisMeshLabs/maintainers
+/src/gateway/tls.rs                 @GenesisMeshLabs/maintainers
+/src/gateway/durable.rs             @GenesisMeshLabs/maintainers
+/src/gateway/audit_delivery.rs      @GenesisMeshLabs/maintainers
+/src/gateway/config.rs              @GenesisMeshLabs/maintainers
+
+# The authority catalog (what the gateway forwards, and to whom) and its generator.
+/ui/services.json                   @GenesisMeshLabs/maintainers
+/ui/openapi.json                    @GenesisMeshLabs/maintainers
+/tests/reference/build_service_catalog.py @GenesisMeshLabs/maintainers
+/tests/catalog.rs                   @GenesisMeshLabs/maintainers
+
+# Vectors copied from the core.
+/tests/reference/                   @GenesisMeshLabs/maintainers
+/tests/vectors.json                 @GenesisMeshLabs/maintainers
+
+# CI workflows and repository settings.
+/.github/                           @GenesisMeshLabs/maintainers
+
+# Packaging, images and deployment.
+/Cargo.toml                         @GenesisMeshLabs/maintainers
+/Cargo.lock                         @GenesisMeshLabs/maintainers
+/Dockerfile                         @GenesisMeshLabs/maintainers
+/.dockerignore                      @GenesisMeshLabs/maintainers
+/deploy/                            @GenesisMeshLabs/maintainers
+/tools/package.ps1                  @GenesisMeshLabs/maintainers
+/tools/install_windows_services.ps1 @GenesisMeshLabs/maintainers
+/tools/refresh_windows_authorities.ps1 @GenesisMeshLabs/maintainers
