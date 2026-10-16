@@ -21,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: The check's own cases
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/test_regression_test.sh
       - name: A fix carries the test that fails without it
         if: github.event_name == 'pull_request'
         env:
