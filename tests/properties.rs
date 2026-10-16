@@ -5,8 +5,9 @@
 //! `json.dumps(value, sort_keys=True, separators=(",", ":"))` (which escapes
 //! non-ASCII as `\uXXXX`, astral characters as surrogate pairs), and for
 //! round trips. Numbers are integers: the gateway signs no floating-point
-//! values, and Rust and Python render some floats differently (`1e16`
-//! against `1e+16`).
+//! values, and serde_json renders floats below 1e-4 differently from Python
+//! (`0.00001` and `1e-7` against `1e-05` and `1e-07`; the core's
+//! `json-exponents` canonical vector).
 
 use genesis_mesh::canonical::{canonicalize, to_canonical_json};
 use genesis_mesh::models::JoinCertificate;
