@@ -26,6 +26,8 @@ use super::{ApiError, AppState};
 // ---------------------------------------------------------------------------
 
 /// Authenticate and apply the configured client quota before parsing JSON.
+/// This layer guards the authenticated sub-router, so it also starts the
+/// durable audit record of each authenticated request (`runtime::begin_audit`).
 pub(super) async fn auth(
     State(state): State<AppState>,
     req: Request,
@@ -67,13 +69,39 @@ pub(super) async fn auth(
             }
         }
     }
+    let trail = req
+        .extensions()
+        .get::<super::runtime::AuditTrail>()
+        .cloned();
     let Some(principal) = identity else {
+        // Anyone can send a request without a valid credential, so these are
+        // logged and counted by route but never written to the durable
+        // store, which would otherwise fill and fail closed (1.7.1).
         state
             .metrics
             .denied
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        state
+            .metrics
+            .count_unauthenticated(trail.as_ref().map_or("unmatched", |t| t.route()));
         return Err(ApiError::unauthorized());
     };
+    // Every authenticated request to a guarded route is durably audited
+    // before it does any work, except a public demo client's: its token is
+    // published, so its traffic would fill the store. Demo requests are
+    // logged and counted.
+    let demo = matches!(
+        (&security, principal.0),
+        (Some(policy), Some(i)) if policy.clients[i].demo
+    );
+    if demo {
+        state
+            .metrics
+            .demo
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    } else {
+        super::runtime::begin_audit(&state, trail.as_ref()).await?;
+    }
     if let (Some(policy), Some(i)) = (&security, principal.0) {
         if let Some(facts) = req.extensions().get::<super::runtime::AuditFacts>() {
             if let Ok(mut context) = facts.0.lock() {

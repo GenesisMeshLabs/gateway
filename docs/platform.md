@@ -41,6 +41,14 @@ An administrator rolling back the entire disk can roll back history; prevent
 that through protected backups, independent sequence records and access control.
 Issuer-key rotation needs an explicit reviewed checkpoint migration.
 
+The state file carries its format (`metadata.version`, 1) and the schema
+migrations applied to it (`schema_migrations`). Startup, `--init-state` and
+`--check-config` apply missing migrations in order, in one transaction, before
+the listener opens (1.7.1). Migrations are additive and keep format 1, so the
+previous release still opens a migrated file; a file of another format is
+refused unchanged. Back up the file through SQLite's backup API before an
+upgrade all the same.
+
 ## Audit
 
 Durable state stores request intent before execution and completion before the
@@ -49,7 +57,20 @@ Only routes that need a client credential are recorded: `/metrics`,
 `/v1/networks`, the authority service route, `/verify`, `/verify/batch` and
 the development routes. Health and readiness probes, public pages, static
 assets, `/openapi.json`, the public mesh view and unknown paths are logged
-only, so anonymous traffic cannot fill the store (v1.1.0). Raw credentials, request bodies, node
+only, so anonymous traffic cannot fill the store (v1.1.0). The router decides
+this: every route registered behind client authentication is recorded, and no
+other (1.7.1). Unknown paths, including the development routes in production,
+answer 404 without authentication and are not charged to a client quota.
+A request to a recorded route without a valid credential (no token, an unknown
+token, or an OIDC subject bound to no client) is answered 401 and logged, but
+not written to the durable store, since anyone can send one; `/metrics` counts
+it as `gateway_unauthenticated_requests_total` by route (1.7.1). Every
+authenticated request to these routes is recorded, including those refused by
+scope or quota.
+Requests by a public demo client (`demo: true`, whose token `/v1/demo`
+publishes) are logged but not written to the durable store, so the published
+token cannot fill it; `/metrics` counts them as `gateway_demo_requests_total`
+(1.7.1). Raw credentials, request bodies, node
 keys, URL queries and certificate contents are excluded. Operator-selected
 client IDs must not contain personal data. An intent without completion means
 an uncertain outcome; inspect authority state before retrying a mutation.
@@ -57,14 +78,33 @@ Storage write failure latches not-ready and denies protected requests.
 
 The database is capped at 262144 SQLite pages (1 GiB with its default 4 KiB
 pages); reserve additional capacity for WAL, backups and filesystem overhead.
-Audit is retained locally, including acknowledged rows. `/metrics` exposes `gateway_audit_pending` and `gateway_state_bytes`. Monitor volume use and
-archive through a controlled SQLite backup before capacity exhaustion. This
-release does not automatically delete audit history. The limit causes fail-closed
-write errors, not silent event loss. Size storage and retention for real traffic.
+Retention is `GATEWAY_AUDIT_RETENTION_DAYS` (default 7, 0 to 3650; 0 keeps
+every row) and depends on whether a collector is configured (1.7.1). Startup
+logs which rule applies.
+
+- With `GATEWAY_AUDIT_URL` set, rows not yet acknowledged by the collector are
+  never deleted. Acknowledged rows are kept locally for the retention period
+  after their acknowledgement, then deleted.
+- Without a collector rows can never be delivered, so the store is a bounded
+  local log: every row is deleted the retention period after it was written,
+  delivered or not. Keep a copy elsewhere (stdout logs, a backup) if you need
+  a longer record.
+
+Pruning runs every ten minutes, a thousand rows per statement. Rows written or
+acknowledged before 1.7.1 have no time and count from the first pass after the
+upgrade. Freed pages are reused, so `gateway_state_bytes` stops growing rather
+than shrinking. `/metrics` exposes
+`gateway_audit_pending` and `gateway_state_bytes`. Monitor volume use and
+archive through a controlled SQLite backup before capacity exhaustion. The limit
+causes fail-closed write errors, not silent event loss. Size storage and
+retention for real traffic.
 
 Optional `GATEWAY_AUDIT_URL` is a pinned HTTPS collector; optional
 `GATEWAY_AUDIT_TOKEN_FILE` contains its bearer secret. Every five seconds the
-gateway posts up to 100 `{"events":[{"id":"...","event":{...}}]}` records.
+gateway posts up to 100 `{"events":[{"id":"...","event":{...}}]}` records,
+and keeps posting further batches at once while they are full and the
+collector acknowledges some of each, so a backlog drains at the collector's
+pace (1.7.1; before, one batch per five seconds, about 20 events a second).
 The collector must durably commit and deduplicate stable IDs before returning
 `{"acknowledged_ids":["..."]}`. HTTP 200 alone is insufficient. Only IDs in
 that batch are acknowledged; failures and partial acknowledgements retry.

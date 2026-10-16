@@ -282,6 +282,7 @@ fn fixture() -> (Config, JoinCertificate, KeyPair) {
             max_batch: 8,
             cpu_workers: 1,
             max_batch_jobs: 1,
+            audit_retention_days: 7,
         },
         cert,
         key,
@@ -422,6 +423,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
     DurableState::initialize(&path).unwrap();
     let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
     let (mut cfg, _, _) = fixture();
+    cfg.security.as_mut().unwrap().clients[0].metrics = true;
     durable.restore(cfg.security.as_mut().unwrap()).unwrap();
     cfg.durable = Some(durable.clone());
     let app = router(cfg);
@@ -445,10 +447,50 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         assert_ne!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
     }
     assert!(durable.pending_audit().unwrap().is_empty());
+    // The development routes do not exist in production: their paths are
+    // unknown paths, answered 404 without authentication and never audited
+    // (1.7.0 labelled them by path and wrote them to the store).
+    for path in ["/keygen", "/issue", "/no/such/path"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            durable.pending_audit().unwrap().is_empty(),
+            "{path} was written to the durable audit"
+        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
 
+    // Requests to a guarded route without a valid credential are logged and
+    // counted, never stored: anyone can send them (1.7.1; 1.7.0 stored them).
+    let unknown = "an-unknown-token-that-is-at-least-32-bytes-long";
+    for token in [None, Some(unknown)] {
+        assert_eq!(
+            call(&app, "/v1/networks", None, token).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(&app, "/verify", Some(json!({})), token).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert!(
+        durable.pending_audit().unwrap().is_empty(),
+        "unauthenticated requests were written to the durable audit"
+    );
+
+    // An authenticated request is stored, started and completed.
     assert_eq!(
-        call(&app, "/v1/networks", None, None).await.0,
-        StatusCode::UNAUTHORIZED
+        call(&app, "/v1/networks", None, Some(TOKEN)).await.0,
+        StatusCode::OK
     );
     let pending = durable.pending_audit().unwrap();
     let phases: Vec<_> = pending
@@ -457,6 +499,40 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         .collect();
     assert_eq!(phases, vec![json!("started"), json!("completed")]);
     assert_eq!(pending[0]["event"]["route"], "/v1/networks");
+    assert_eq!(
+        pending[1]["event"]["context"]["client_id"],
+        "agency-service"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let metrics = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    for route in ["/v1/networks", "/verify"] {
+        assert!(
+            metrics.contains(&format!(
+                "gateway_unauthenticated_requests_total{{route=\"{route}\"}} 2\n"
+            )),
+            "{metrics}"
+        );
+    }
     std::fs::remove_dir_all(folder).ok();
 }
 
@@ -2856,4 +2932,94 @@ async fn public_mesh_marks_failed_upstreams_and_coalesces_refreshes() {
     assert_eq!(body, again);
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 4);
     task.abort();
+}
+
+/// The demo token is published: its requests are counted, not written to
+/// the durable audit store, which anyone could otherwise fill until every
+/// client gets 503 (1.7.1). Every other client is still audited.
+#[tokio::test]
+async fn demo_requests_are_counted_but_not_durably_audited() {
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-demo-audit-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    DurableState::initialize(&path).unwrap();
+    let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
+    let (mut cfg, cert, _) = fixture();
+    cfg.security.as_mut().unwrap().clients[0].metrics = true;
+    let mut cfg = with_demo(cfg, demo_client());
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    cfg.durable = Some(durable.clone());
+    let app = router(cfg);
+
+    assert_eq!(
+        call(&app, "/v1/networks", None, Some(DEMO_TOKEN)).await.0,
+        StatusCode::OK
+    );
+    let (status, result) = call(
+        &app,
+        "/verify",
+        Some(json!({"certificate":cert})),
+        Some(DEMO_TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{result}");
+    assert!(
+        durable.pending_audit().unwrap().is_empty(),
+        "demo requests were written to the durable audit"
+    );
+
+    assert_eq!(
+        call(&app, "/v1/networks", None, Some(TOKEN)).await.0,
+        StatusCode::OK
+    );
+    let pending = durable.pending_audit().unwrap();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(
+        pending[1]["event"]["context"]["client_id"],
+        "agency-service"
+    );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/metrics")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let metrics = String::from_utf8(
+        response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(
+        metrics.contains("gateway_demo_requests_total 2\n"),
+        "{metrics}"
+    );
+    drop(app);
+    drop(durable);
+    std::fs::remove_dir_all(folder).ok();
+}
+
+#[test]
+fn delivered_audit_retention_is_bounded_and_zero_keeps_delivered_rows() {
+    let (mut cfg, _, _) = fixture();
+    assert_eq!(cfg.audit_retention(), Some(Duration::from_secs(7 * 86_400)));
+    cfg.audit_retention_days = 0;
+    assert!(cfg.validate().is_ok());
+    assert_eq!(cfg.audit_retention(), None);
+    cfg.audit_retention_days = 3650;
+    assert!(cfg.validate().is_ok());
+    cfg.audit_retention_days = 3651;
+    assert!(cfg.validate().is_err());
 }
