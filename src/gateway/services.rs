@@ -134,43 +134,7 @@ pub(super) async fn execute(
             "unsupported or oversized query parameter",
         ));
     }
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|_| ApiError::internal("authority path"))?;
-        segments.clear();
-        for segment in op.upstream_path.trim_start_matches('/').split('/') {
-            if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
-                let value = query
-                    .get(name)
-                    .filter(|s| !s.is_empty() && s.as_str() != "." && s.as_str() != "..")
-                    .ok_or_else(|| ApiError::bad_request(format!("missing or invalid {name}")))?;
-                let parts: Vec<&str> = if PATH_PARAMETERS.contains(&name) {
-                    value.split('/').collect()
-                } else {
-                    vec![value.as_str()]
-                };
-                let valid = if name == "node_public_key" {
-                    crate::crypto::validate_public_key(value).unwrap_or(false)
-                } else if TEXT_PARAMETERS.contains(&name) {
-                    parts.iter().all(|part| valid_text_segment(part))
-                } else {
-                    value
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b))
-                };
-                if !valid {
-                    return Err(ApiError::bad_request("invalid resource identifier"));
-                }
-                // Each part encoded once as one segment; never interpolate untrusted paths.
-                for part in parts {
-                    segments.push(part);
-                }
-            } else {
-                segments.push(segment);
-            }
-        }
-    }
+    push_upstream_path(&mut url, &op.upstream_path, &query)?;
     for (key, value) in &query {
         if op.query.contains(key) {
             url.query_pairs_mut().append_pair(key, value);
@@ -267,23 +231,7 @@ pub(super) async fn execute(
             };
         }
         if status.is_success() && op.response.as_deref() == Some("ndjson") {
-            let text = String::from_utf8(bytes).map_err(|_| {
-                ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    "authority returned invalid text".into(),
-                )
-            })?;
-            // Every line must be a JSON object: the gateway forwards records, not markup.
-            if !text
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
-            {
-                return Err(ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    "authority returned invalid JSON Lines".into(),
-                ));
-            }
+            let text = ndjson_text(bytes)?;
             tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
             return Ok((
                 status,
@@ -316,6 +264,76 @@ pub(super) async fn execute(
             .insert("retry-after", axum::http::HeaderValue::from_static("60"));
     }
     Ok(response)
+}
+
+/// Replace `url`'s path with the operation's upstream path template, each
+/// `{name}` filled from the request's parameters. Every value is validated and
+/// pushed as encoded segments, so a value can never add, remove or climb
+/// path segments; `resource_id` may span several segments.
+fn push_upstream_path(
+    url: &mut reqwest::Url,
+    template: &str,
+    query: &BTreeMap<String, String>,
+) -> Result<(), ApiError> {
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| ApiError::internal("authority path"))?;
+    segments.clear();
+    for segment in template.trim_start_matches('/').split('/') {
+        if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+            let value = query
+                .get(name)
+                .filter(|s| !s.is_empty() && s.as_str() != "." && s.as_str() != "..")
+                .ok_or_else(|| ApiError::bad_request(format!("missing or invalid {name}")))?;
+            let parts: Vec<&str> = if PATH_PARAMETERS.contains(&name) {
+                value.split('/').collect()
+            } else {
+                vec![value.as_str()]
+            };
+            let valid = if name == "node_public_key" {
+                crate::crypto::validate_public_key(value).unwrap_or(false)
+            } else if TEXT_PARAMETERS.contains(&name) {
+                parts.iter().all(|part| valid_text_segment(part))
+            } else {
+                value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b))
+            };
+            if !valid {
+                return Err(ApiError::bad_request("invalid resource identifier"));
+            }
+            // Each part encoded once as one segment; never interpolate untrusted paths.
+            for part in parts {
+                segments.push(part);
+            }
+        } else {
+            segments.push(segment);
+        }
+    }
+    Ok(())
+}
+
+/// A JSON Lines answer from the authority, passed on as text: valid UTF-8,
+/// and every nonblank line a JSON object. The gateway forwards records, not
+/// markup.
+fn ndjson_text(bytes: Vec<u8>) -> Result<String, ApiError> {
+    let text = String::from_utf8(bytes).map_err(|_| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            "authority returned invalid text".into(),
+        )
+    })?;
+    if !text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
+    {
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            "authority returned invalid JSON Lines".into(),
+        ));
+    }
+    Ok(text)
 }
 
 /// What the gateway passes on from the authority's response, when well
