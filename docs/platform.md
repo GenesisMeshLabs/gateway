@@ -41,6 +41,14 @@ An administrator rolling back the entire disk can roll back history; prevent
 that through protected backups, independent sequence records and access control.
 Issuer-key rotation needs an explicit reviewed checkpoint migration.
 
+The state file carries its format (`metadata.version`, 1) and the schema
+migrations applied to it (`schema_migrations`). Startup, `--init-state` and
+`--check-config` apply missing migrations in order, in one transaction, before
+the listener opens (1.7.1). Migrations are additive and keep format 1, so the
+previous release still opens a migrated file; a file of another format is
+refused unchanged. Back up the file through SQLite's backup API before an
+upgrade all the same.
+
 ## Audit
 
 Durable state stores request intent before execution and completion before the
