@@ -1,1 +1,11 @@
 * text=auto eol=lf
+
+# Generated or copied from the core: collapsed in pull request diffs so the
+# code shows first. Regenerate them; never edit them by hand (except the
+# gateway's own paths in ui/openapi.json, see docs/architecture.md).
+ui/services.json linguist-generated=true
+ui/openapi.json linguist-generated=true
+tests/vectors.json linguist-generated=true
+tests/reference/admin_auth.json linguist-generated=true
+tests/reference/python-evidence-vectors.json linguist-generated=true
+Cargo.lock linguist-generated=true
