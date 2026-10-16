@@ -535,6 +535,23 @@ mod properties {
             }
         }
 
+        /// A node public key is a valid key, kept as one segment even when its
+        /// base64 has `/` (the core reads it with a `path:` converter), or is
+        /// refused.
+        #[test]
+        fn a_node_public_key_is_one_segment_or_is_refused(other in text()) {
+            let key = crate::crypto::KeyPair::generate().unwrap().public_key_b64();
+            for value in [key.as_str(), other.as_str()] {
+                let accepted = crate::crypto::validate_public_key(value).unwrap_or(false);
+                let result = build("/agents/{node_public_key}", "node_public_key", value);
+                prop_assert_eq!(result.is_ok(), accepted, "{:?}", value);
+                if let Ok(url) = result {
+                    prop_assert_eq!(segments(&url), vec!["agents".to_owned(), value.to_owned()]);
+                }
+            }
+            prop_assert!(crate::crypto::validate_public_key(&key).unwrap());
+        }
+
         /// A template parameter the request does not carry is refused.
         #[test]
         fn a_missing_parameter_is_refused(value in text()) {
