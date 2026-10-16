@@ -134,43 +134,7 @@ pub(super) async fn execute(
             "unsupported or oversized query parameter",
         ));
     }
-    {
-        let mut segments = url
-            .path_segments_mut()
-            .map_err(|_| ApiError::internal("authority path"))?;
-        segments.clear();
-        for segment in op.upstream_path.trim_start_matches('/').split('/') {
-            if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
-                let value = query
-                    .get(name)
-                    .filter(|s| !s.is_empty() && s.as_str() != "." && s.as_str() != "..")
-                    .ok_or_else(|| ApiError::bad_request(format!("missing or invalid {name}")))?;
-                let parts: Vec<&str> = if PATH_PARAMETERS.contains(&name) {
-                    value.split('/').collect()
-                } else {
-                    vec![value.as_str()]
-                };
-                let valid = if name == "node_public_key" {
-                    crate::crypto::validate_public_key(value).unwrap_or(false)
-                } else if TEXT_PARAMETERS.contains(&name) {
-                    parts.iter().all(|part| valid_text_segment(part))
-                } else {
-                    value
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b))
-                };
-                if !valid {
-                    return Err(ApiError::bad_request("invalid resource identifier"));
-                }
-                // Each part encoded once as one segment; never interpolate untrusted paths.
-                for part in parts {
-                    segments.push(part);
-                }
-            } else {
-                segments.push(segment);
-            }
-        }
-    }
+    push_upstream_path(&mut url, &op.upstream_path, &query)?;
     for (key, value) in &query {
         if op.query.contains(key) {
             url.query_pairs_mut().append_pair(key, value);
@@ -267,23 +231,7 @@ pub(super) async fn execute(
             };
         }
         if status.is_success() && op.response.as_deref() == Some("ndjson") {
-            let text = String::from_utf8(bytes).map_err(|_| {
-                ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    "authority returned invalid text".into(),
-                )
-            })?;
-            // Every line must be a JSON object: the gateway forwards records, not markup.
-            if !text
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
-            {
-                return Err(ApiError(
-                    StatusCode::BAD_GATEWAY,
-                    "authority returned invalid JSON Lines".into(),
-                ));
-            }
+            let text = ndjson_text(bytes)?;
             tracing::info!(target: "audit", client_id = %client.id, network = %network, operation = %op.id, status = status.as_u16(), "authority operation completed");
             return Ok((
                 status,
@@ -316,6 +264,76 @@ pub(super) async fn execute(
             .insert("retry-after", axum::http::HeaderValue::from_static("60"));
     }
     Ok(response)
+}
+
+/// Replace `url`'s path with the operation's upstream path template, each
+/// `{name}` filled from the request's parameters. Every value is validated and
+/// pushed as encoded segments, so a value can never add, remove or climb
+/// path segments; `resource_id` may span several segments.
+fn push_upstream_path(
+    url: &mut reqwest::Url,
+    template: &str,
+    query: &BTreeMap<String, String>,
+) -> Result<(), ApiError> {
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| ApiError::internal("authority path"))?;
+    segments.clear();
+    for segment in template.trim_start_matches('/').split('/') {
+        if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+            let value = query
+                .get(name)
+                .filter(|s| !s.is_empty() && s.as_str() != "." && s.as_str() != "..")
+                .ok_or_else(|| ApiError::bad_request(format!("missing or invalid {name}")))?;
+            let parts: Vec<&str> = if PATH_PARAMETERS.contains(&name) {
+                value.split('/').collect()
+            } else {
+                vec![value.as_str()]
+            };
+            let valid = if name == "node_public_key" {
+                crate::crypto::validate_public_key(value).unwrap_or(false)
+            } else if TEXT_PARAMETERS.contains(&name) {
+                parts.iter().all(|part| valid_text_segment(part))
+            } else {
+                value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b))
+            };
+            if !valid {
+                return Err(ApiError::bad_request("invalid resource identifier"));
+            }
+            // Each part encoded once as one segment; never interpolate untrusted paths.
+            for part in parts {
+                segments.push(part);
+            }
+        } else {
+            segments.push(segment);
+        }
+    }
+    Ok(())
+}
+
+/// A JSON Lines answer from the authority, passed on as text: valid UTF-8,
+/// and every nonblank line a JSON object. The gateway forwards records, not
+/// markup.
+fn ndjson_text(bytes: Vec<u8>) -> Result<String, ApiError> {
+    let text = String::from_utf8(bytes).map_err(|_| {
+        ApiError(
+            StatusCode::BAD_GATEWAY,
+            "authority returned invalid text".into(),
+        )
+    })?;
+    if !text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .all(|line| serde_json::from_str::<Value>(line).is_ok_and(|v| v.is_object()))
+    {
+        return Err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            "authority returned invalid JSON Lines".into(),
+        ));
+    }
+    Ok(text)
 }
 
 /// What the gateway passes on from the authority's response, when well
@@ -352,4 +370,241 @@ fn upstream_headers(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod properties {
+    //! Property tests of the request parsers: the path segment validator,
+    //! upstream path building and the JSON Lines reader.
+    use super::*;
+    use proptest::prelude::*;
+
+    /// The segment rule, written out independently of `valid_text_segment`.
+    fn segment_rule(segment: &str) -> bool {
+        !(segment.is_empty()
+            || segment == "."
+            || segment == ".."
+            || segment.contains(['%', '\\', '/'])
+            || segment.chars().any(char::is_control))
+    }
+
+    fn percent_decoded(segment: &str) -> String {
+        let bytes = segment.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' {
+                out.push(u8::from_str_radix(&segment[i + 1..i + 3], 16).unwrap());
+                i += 3;
+            } else {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).unwrap()
+    }
+
+    /// Any text, weighted towards the characters that matter here.
+    fn text() -> impl Strategy<Value = String> {
+        prop_oneof![
+            prop::collection::vec(any::<char>(), 0..12).prop_map(String::from_iter),
+            "[a-z0-9./%:@ \\\\-]{0,10}",
+            "(\\.{1,2}|[a-z]{1,3})(/(\\.{0,2}|[a-z]{1,3})){0,3}",
+            prop::sample::select(vec![
+                "",
+                ".",
+                "..",
+                "/",
+                "a/",
+                "/a",
+                "a//b",
+                "kv:vault/secret",
+                "zo\u{eb}",
+            ])
+            .prop_map(str::to_owned),
+        ]
+    }
+
+    fn build(template: &str, name: &str, value: &str) -> Result<reqwest::Url, ApiError> {
+        let mut url = reqwest::Url::parse("https://authority.example:8443/prefix/").unwrap();
+        let query = BTreeMap::from([(name.to_owned(), value.to_owned())]);
+        push_upstream_path(&mut url, template, &query).map(|()| url)
+    }
+
+    fn segments(url: &reqwest::Url) -> Vec<String> {
+        url.path_segments().unwrap().map(percent_decoded).collect()
+    }
+
+    /// A JSON object as the authority writes one record per line.
+    fn record() -> impl Strategy<Value = String> {
+        let value = prop_oneof![
+            Just(Value::Null),
+            any::<bool>().prop_map(Value::Bool),
+            any::<i64>().prop_map(Value::from),
+            text().prop_map(Value::String),
+        ];
+        prop::collection::btree_map(text(), value, 0..5).prop_map(|map| {
+            serde_json::to_string(&Value::Object(map.into_iter().collect())).unwrap()
+        })
+    }
+
+    /// A line that is not a JSON object.
+    fn not_a_record() -> impl Strategy<Value = String> {
+        prop_oneof![
+            any::<i64>().prop_map(|n| n.to_string()),
+            text().prop_map(|s| serde_json::to_string(&s).unwrap()),
+            Just("[]".to_owned()),
+            Just("[{}]".to_owned()),
+            Just("null".to_owned()),
+            Just("true".to_owned()),
+            Just("{".to_owned()),
+            Just("{\"a\":1}}".to_owned()),
+            "[a-z<>]{1,8}",
+        ]
+    }
+
+    fn lines(records: &[String], crlf: bool, blank: bool, trailing: bool) -> String {
+        let newline = if crlf { "\r\n" } else { "\n" };
+        let mut text = String::new();
+        for (i, record) in records.iter().enumerate() {
+            if blank && i % 2 == 1 {
+                text.push_str("  ");
+                text.push_str(newline);
+            }
+            text.push_str(record);
+            if i + 1 < records.len() || trailing {
+                text.push_str(newline);
+            }
+        }
+        text
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(512))]
+
+        #[test]
+        fn valid_text_segment_follows_its_rule(segment in text()) {
+            prop_assert_eq!(valid_text_segment(&segment), segment_rule(&segment));
+        }
+
+        /// A resource ID becomes exactly its `/`-separated parts as encoded
+        /// segments between the template's own, or is refused; it can never
+        /// add a dot segment, change the authority or add a query.
+        #[test]
+        fn a_resource_id_becomes_its_own_segments_or_is_refused(value in text()) {
+            let template = "/evidence/resources/{resource_id}/head";
+            let accepted = value != "." && value != ".." && !value.is_empty()
+                && value.split('/').all(segment_rule);
+            let result = build(template, "resource_id", &value);
+            prop_assert_eq!(result.is_ok(), accepted, "{:?}", value);
+            match result {
+                Ok(url) => {
+                    let mut expected = vec!["evidence".to_owned(), "resources".to_owned()];
+                    expected.extend(value.split('/').map(str::to_owned));
+                    expected.push("head".to_owned());
+                    prop_assert_eq!(segments(&url), expected);
+                    prop_assert!(url.path_segments().unwrap().all(|s| s != "." && s != ".."));
+                    prop_assert_eq!(url.host_str(), Some("authority.example"));
+                    prop_assert_eq!(url.port(), Some(8443));
+                    prop_assert_eq!(url.query(), None);
+                }
+                Err(error) => prop_assert_eq!(error.0, StatusCode::BAD_REQUEST),
+            }
+        }
+
+        /// A text parameter that is not a resource ID is one segment.
+        #[test]
+        fn a_vendor_id_is_one_segment_or_is_refused(value in text()) {
+            let result = build("/evidence/vendors/{vendor_id}/history", "vendor_id", &value);
+            prop_assert_eq!(result.is_ok(), segment_rule(&value), "{:?}", value);
+            if let Ok(url) = result {
+                let expected = ["evidence", "vendors", value.as_str(), "history"].map(str::to_owned);
+                prop_assert_eq!(segments(&url), expected.to_vec());
+            }
+        }
+
+        /// Any other parameter is a plain identifier, kept as one segment.
+        #[test]
+        fn an_identifier_is_one_plain_segment_or_is_refused(value in text()) {
+            let accepted = value != "." && value != ".." && !value.is_empty()
+                && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b));
+            let result = build("/grants/{grant_id}", "grant_id", &value);
+            prop_assert_eq!(result.is_ok(), accepted, "{:?}", value);
+            if let Ok(url) = result {
+                prop_assert_eq!(url.path(), format!("/grants/{value}"));
+            }
+        }
+
+        /// A node public key is a valid key, kept as one segment even when its
+        /// base64 has `/` (the core reads it with a `path:` converter), or is
+        /// refused.
+        #[test]
+        fn a_node_public_key_is_one_segment_or_is_refused(other in text()) {
+            let key = crate::crypto::KeyPair::generate().unwrap().public_key_b64();
+            for value in [key.as_str(), other.as_str()] {
+                let accepted = crate::crypto::validate_public_key(value).unwrap_or(false);
+                let result = build("/agents/{node_public_key}", "node_public_key", value);
+                prop_assert_eq!(result.is_ok(), accepted, "{:?}", value);
+                if let Ok(url) = result {
+                    prop_assert_eq!(segments(&url), vec!["agents".to_owned(), value.to_owned()]);
+                }
+            }
+            prop_assert!(crate::crypto::validate_public_key(&key).unwrap());
+        }
+
+        /// A template parameter the request does not carry is refused.
+        #[test]
+        fn a_missing_parameter_is_refused(value in text()) {
+            let error = build("/grants/{grant_id}", "other", &value).unwrap_err();
+            prop_assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        }
+
+        /// JSON Lines of objects pass through unchanged, with LF or CRLF line
+        /// ends, blank lines and an optional final newline.
+        #[test]
+        fn json_lines_of_objects_pass_unchanged(
+            records in prop::collection::vec(record(), 0..6),
+            crlf in any::<bool>(),
+            blank in any::<bool>(),
+            trailing in any::<bool>(),
+        ) {
+            let text = lines(&records, crlf, blank, trailing);
+            prop_assert_eq!(ndjson_text(text.clone().into_bytes()).ok(), Some(text));
+        }
+
+        /// One line that is not a JSON object refuses the whole answer.
+        #[test]
+        fn a_line_that_is_not_an_object_is_refused(
+            records in prop::collection::vec(record(), 0..6),
+            bad in not_a_record(),
+            at in any::<prop::sample::Index>(),
+            crlf in any::<bool>(),
+        ) {
+            let mut records = records;
+            let position = at.index(records.len() + 1);
+            records.insert(position, bad);
+            let error = ndjson_text(lines(&records, crlf, false, true).into_bytes()).unwrap_err();
+            prop_assert_eq!(error.0, StatusCode::BAD_GATEWAY);
+        }
+
+        /// Text that is not UTF-8 is refused.
+        #[test]
+        fn invalid_utf8_is_refused(
+            records in prop::collection::vec(record(), 0..4),
+            at in any::<prop::sample::Index>(),
+            byte in 0x80u8..=0xff,
+        ) {
+            let text = lines(&records, false, false, true);
+            // Only at a line boundary, so the byte cannot complete a
+            // multi-byte character; alone between newlines it is never UTF-8.
+            let boundaries: Vec<usize> = std::iter::once(0)
+                .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+                .collect();
+            let position = boundaries[at.index(boundaries.len())];
+            let mut bytes = text.into_bytes();
+            bytes.splice(position..position, [byte, b'\n']);
+            let error = ndjson_text(bytes).unwrap_err();
+            prop_assert_eq!(error.0, StatusCode::BAD_GATEWAY);
+        }
+    }
 }

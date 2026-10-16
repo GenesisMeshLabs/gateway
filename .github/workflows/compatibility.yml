@@ -1,0 +1,37 @@
+name: Public API compatibility
+# Operation IDs (the public URLs /v1/networks/{network}/services/{id}) are
+# append-only against the latest release tag: removing or incompatibly
+# changing a released operation needs the Maintainer's `breaking` label and an
+# `### Upgrading` section in the description. Labels and the description
+# reach the script only through the environment.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  merge_group:
+permissions:
+  contents: read
+jobs:
+  operation-ids:
+    name: Operation IDs
+    runs-on: ubuntu-latest
+    steps:
+      # A pull request's own change decides the result, and the label and
+      # description are only known there; the queue relies on that check.
+      - name: The merge queue relies on the pull request's check
+        if: github.event_name == 'merge_group'
+        run: echo "Checked on the pull request."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The check's own cases
+        if: github.event_name == 'pull_request'
+        run: python3 .github/scripts/test_operation_ids.py
+      - name: Released operation IDs are kept
+        if: github.event_name == 'pull_request'
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/operation_ids.py "$BASE_SHA" HEAD

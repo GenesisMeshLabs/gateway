@@ -31,10 +31,9 @@ jobs:
             echo "::error::No console tests (tools/test_ui_*.mjs) found."
             exit 1
           fi
-          for test in "${tests[@]}"; do
-            echo "== $test"
-            node "$test"
-          done
+          # One runner for all of them: each file is a test, and a file that
+          # throws or exits non-zero fails the step.
+          node --test "${tests[@]}"
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
@@ -54,6 +53,25 @@ jobs:
             exit 1
           fi
       - run: cargo build --locked --release --bin genesis-mesh-gateway
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    env:
+      # Line coverage of the crate (library, binaries and tests; not doctests
+      # or the ignored Redis test). Measured at 79.28% on 2026-10-16 (78.51%
+      # before the property and architecture tests) and rounded down. Raise
+      # it when coverage rises; never lower it to pass.
+      COVERAGE_FLOOR: "79"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with: {tool: cargo-llvm-cov@0.9.1}
+      - name: Line coverage is at or above the floor
+        run: cargo llvm-cov --locked --all-targets --summary-only --fail-under-lines "$COVERAGE_FLOOR"
   container:
     name: Gateway image with the Network Authority image on ${{ matrix.arch }}
     strategy:
