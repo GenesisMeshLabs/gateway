@@ -29,7 +29,8 @@ attestation list and the node roster and nothing else.
 ```
 
 The seed file holds the key's base64 Ed25519 seed (lines starting with `#`
-are skipped, so a key written by `genesis-mesh keygen node` works). The
+are skipped, so a key written by the core's Python `genesis-mesh keygen node`
+works). The
 gateway reads it at start and fails to start if it cannot. Each member read
 carries a version 2 admin signature for `GET /attestations?status=active`
 with the authority's public key from `anchors` (the CRL issuer's key) as its
@@ -47,20 +48,12 @@ authorities and stale browser snapshots are shown explicitly.
 
 ## Demonstration records
 
-`../sandbox/tests/gateway-mesh/bootstrap_demo_mesh.py` creates real operator-authorized `role:client`
-treaties and three signed demo memberships per supplied network. It imports
-signed revocation feeds and verifies every demo membership across each treaty.
-It reuses compatible active records and does not replace recognition policy.
-Records expire after 30 days; rerun to reuse or renew expiring demo records.
-
-```powershell
-python ../sandbox/tests/gateway-mesh/bootstrap_demo_mesh.py --token-file /private/service.token `
-  --authority network-a=/private/network-a/operator.key `
-  --authority network-b=/private/network-b/operator.key
-```
-
-Requires Python with `cryptography`. Operator seeds remain local. Demo subjects
-are illustrative participants, not deployed public-sector applications.
+The public demo records are created by `infrastructure/mesh-demo` in the
+`genesismesh` repository: its `demo` job bootstraps treaties, memberships and
+revocation feeds every 10 minutes and publishes the records the guided tour
+reads at `/demo-data/` (see [authority services](services.md#demo-access-and-the-guided-tour-v065)).
+Demo subjects are illustrative participants, not deployed public-sector
+applications.
 
 For reference authorities that do not renew inactive CRLs automatically,
 `../genesismesh/scripts/authority_ops/refresh_authority_crl.py` can run hourly in the authority's Python

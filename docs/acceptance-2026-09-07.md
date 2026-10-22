@@ -1,5 +1,9 @@
 # Deployment acceptance, 2026-09-07
 
+> **Historical record**, 2026-09-07, gateway v0.57.0. Not updated; the dates
+> and files below belong to that deployment. For current guidance see
+> [operations](operations.md) and [platform controls](platform.md).
+
 These are executed checks on the self-hosted deployment, with private raw JSON
 and logs retained under `.local/acceptance-20260907`. They do not establish an
 organization accreditation, power-failure guarantee or production SLO.

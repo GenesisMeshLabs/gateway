@@ -5,6 +5,13 @@ native mutual TLS, coordinated Redis quotas, and multiple CRL issuers per networ
 These are configurable controls, not an accreditation or a claim that every
 deployment enables them. `/api.security_capabilities` reports enabled adapters.
 
+**Not yet released.** Items marked *(1.7.1)* are on `main` and not in the
+1.7.0 release: the state file's migrations, delivered-row audit retention
+(`GATEWAY_AUDIT_RETENTION_DAYS`), keeping unauthenticated and demo requests
+out of the durable store with their two counters
+(`gateway_unauthenticated_requests_total`, `gateway_demo_requests_total`),
+and audit delivery that drains a backlog. A 1.7.0 binary does not have them.
+
 ## Durable state and recovery
 
 Mount one persistent directory per replica, owned by UID 10001 in the container.
@@ -39,7 +46,10 @@ from independently verified current floors. Restore consistent SQLite backups
 (including WAL through SQLite's backup API), never just copy an active main DB.
 An administrator rolling back the entire disk can roll back history; prevent
 that through protected backups, independent sequence records and access control.
-Issuer-key rotation needs an explicit reviewed checkpoint migration.
+Issuer-key rotation needs an explicit reviewed checkpoint migration. An
+authority that replaces its NA key by a key succession (Genesis Mesh 1.5.0)
+cannot be followed: the gateway does not read the key history. See
+[key succession](key-succession.md).
 
 The state file carries its format (`metadata.version`, 1) and the schema
 migrations applied to it (`schema_migrations`). Startup, `--init-state` and
@@ -204,4 +214,4 @@ mesh data isolation. Record findings and remediation before accreditation.
 
 ## Minimal runtime health probe
 
-From 0.57.1 the container uses a digest-pinned distroless runtime without curl or a shell. Its exec healthcheck runs the gateway's bounded local HTTP --healthcheck command. Native mTLS deployments must supply a compatible client-certificate probe; this HTTP probe fails against a TLS-only listener and does not create an unauthenticated bypass. The default Cloudflare-origin HTTP deployment uses the native probe.
+From 0.57.1 the container uses a digest-pinned distroless runtime without curl or a shell. Its exec healthcheck runs the gateway's bounded local HTTP --healthcheck command. Native mTLS deployments must supply a compatible client-certificate probe; this HTTP probe fails against a TLS-only listener and does not create an unauthenticated bypass. A deployment whose listener is plain HTTP behind its ingress uses the native probe.

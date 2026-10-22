@@ -8,7 +8,10 @@ credentials in production. Authorities remain responsible for issuance and CRLs.
 ## Deployment boundary
 
 Run behind an organization-controlled TLS ingress on a private network. The
-gateway listener is HTTP; do not expose it directly to the internet. Ingress must
+gateway listener is plain HTTP unless native mutual TLS is configured (see
+[platform controls](platform.md#organization-identity-and-mounted-secrets)).
+Either way, run it behind your TLS ingress and do not expose it directly to
+the internet. Ingress must
 enforce TLS, connection/header timeouts, connection limits and aggregate abuse
 controls. An external tunnel provider is optional and requires your own hosting
 and data residency approval. The gateway does not trust forwarded identity or IP
@@ -100,7 +103,8 @@ are replayable public documents.
 denied; `429` means the per-client quota is exhausted; `503` means capacity or
 readiness is unavailable. Framework JSON errors use `400`/`422`, oversized bodies
 use `413`, and request deadlines use `408`. Framework rejections may have plain
-text or empty bodies; application errors have `error` and `code` fields.
+text or empty bodies; application errors have `error` and `code` fields (see
+[Responses and metrics](#responses-and-metrics)).
 A client quota `429` carries `Retry-After` with the seconds until that client's
 quota window resets (1.2); other gateway `429` and application `503` responses
 carry a conservative `Retry-After: 60`. An authority operation's response
@@ -115,8 +119,10 @@ characters are refused at the gateway. All clients' observation submissions
 reach the authority from the gateway's address and share its per-address rate
 limit; see [Authority services](services.md#observation-submission-rate).
 
-`GET /health` is liveness; `GET /ready` returns `503` when any configured network's
-CRL expires. Stale networks deny verification immediately even before a load
+`GET /health` is liveness; `GET /ready` returns `503` when any configured
+network's CRL (or an additional issuer's) has expired, when the durable state
+store has failed a write, or when the shared quota backend is unreachable. One
+stale network makes the whole gateway not ready. Stale networks deny verification immediately even before a load
 balancer observes readiness. The gateway's readiness does not include the
 authorities': read an authority's through the `health-readyz` service
 operation, which from 1.5.0 reports its signing key's state
@@ -126,13 +132,10 @@ and `nosniff` headers.
 
 ## Resource controls
 
-| Variable | Default | Valid range |
-| --- | --- | --- |
-| `GATEWAY_ADDR` | `127.0.0.1:8080` | Socket address |
-| `GATEWAY_TIMEOUT_MS` | `15000` | 1–300000 |
-| `GATEWAY_MAX_BODY_BYTES` | `1048576` | 1–16777216 |
-| `GATEWAY_MAX_INFLIGHT` | `512` | 1–4096 |
-| `GATEWAY_MAX_BATCH` | `1024` | 1–4096 |
+Every setting, with its default and valid range, is in the
+[configuration reference](configuration.md#resource-limits). The defaults are
+a 15-second request deadline, 1 MiB bodies, 32 requests in flight, 128
+certificates per batch and two CPU workers, of which one may run a batch.
 
 An independent worker semaphore stays held until computation actually finishes,
 even if the HTTP future times out or disconnects. Batch processing is sequential
@@ -150,8 +153,8 @@ JSON stdout logs include request ID, admitted client ID, policy revision, status
 latency and completed trust decisions. Request spans correlate admitted clients
 with decisions. Raw URLs, query strings, headers, credentials and request bodies
 are excluded. Operator-supplied client names are logged; do not use personal data
-for these identifiers. `/metrics` exposes aggregate requests, server failures,
-authentication denials and active crypto workers without client labels.
+for these identifiers. `/metrics` carries aggregate counters without client
+labels; they are listed under [Responses and metrics](#responses-and-metrics).
 
 Forward stdout to an access-controlled collector with retention, integrity and
 delivery monitoring. The bounded background stdout writer applies backpressure rather than dropping events. Local stdout is neither durable nor tamper-evident, and the
@@ -169,7 +172,52 @@ image scans, workload capacity/soak tests, disaster recovery and rotation drills
 ingress review and your organization's privacy/accreditation process. No claim
 of FIPS validation, NIS2/GDPR compliance or suitability for classified systems is
 made. HSM-backed issuance belongs in the authority; this production gateway
-does not accept or hold authority signing keys. OIDC, native mTLS, durable audit delivery, durable CRL history and Redis quotas are implemented as configurable adapters. See [platform controls](platform.md) for activation and recovery boundaries.
+holds no Network Authority signing key. With `mesh_reader` (see
+[mesh operations](mesh.md#members)) it holds one read-tier operator key per
+published network, which can read the attestation list and node roster and
+nothing else. OIDC, native mTLS, durable audit delivery, durable CRL history and Redis quotas are implemented as configurable adapters. See [platform controls](platform.md) for activation and recovery boundaries.
 
 Replica packaging, CPU/batch budgets, field limits and quota semantics are
 documented in [distribution](distribution.md).
+
+## Responses and metrics
+
+### Error responses
+
+The gateway's own errors are JSON objects with a message and a code:
+`{"error": "...", "code": "..."}`. Server errors (`5xx`) carry a generic
+message, never the cause.
+
+| Status | `code` | Meaning |
+| --- | --- | --- |
+| `400` | `invalid_request` | The request, a parameter or the body is not valid |
+| `401` | `unauthorized` | No credential, or one no client holds; the answer carries `WWW-Authenticate: Bearer` |
+| `403` | `forbidden` | The client lacks the network, service group, operator or metrics scope |
+| `404` | `not_found` | No such route, network or catalog operation |
+| `405` | `method_not_allowed` | The operation exists with another method |
+| `429` | `rate_limited` | The client's quota is used up; see `Retry-After` |
+| `502` | `authority_unavailable` | The authority could not be reached, or answered with a server error |
+| `503` | `unavailable` | No capacity, trust data not ready, or the quota or state backend failed |
+| `500` | `internal_error` | Anything else |
+
+An authority operation's refusal is relayed with the authority's status and
+body, whose shape differs: `{"error": {"code": "...", "message": "...",
+"details": {...}, "request_id": "..."}}`. Check `error.code` when `error` is
+an object. The console explains the authority codes it knows.
+
+### Metrics
+
+`GET /metrics` needs a client with `metrics: true` and answers in the
+Prometheus text format.
+
+| Metric | Type | Labels | Counts |
+| --- | --- | --- | --- |
+| `gateway_requests_total` | counter | none | Requests received |
+| `gateway_failures_total` | counter | none | Responses with a `5xx` status |
+| `gateway_denied_total` | counter | none | Requests refused for lack of a valid credential (`401`) |
+| `gateway_crypto_active` | gauge | none | CPU jobs running now |
+| `gateway_demo_requests_total` (unreleased; 1.7.1) | counter | none | Requests by a public demo client |
+| `gateway_unauthenticated_requests_total` (unreleased; 1.7.1) | counter | `route` | Requests to a credentialed route without a valid credential |
+| `gateway_request_duration_seconds` | histogram | `le` | Time to answer each request, health checks included |
+| `gateway_audit_pending` | gauge | none | Durable audit rows not yet delivered; only with `GATEWAY_STATE_FILE` |
+| `gateway_state_bytes` | gauge | none | Size of the durable state file; only with `GATEWAY_STATE_FILE` |

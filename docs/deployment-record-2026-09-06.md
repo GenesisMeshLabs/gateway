@@ -1,4 +1,9 @@
-# Deployment record
+# Deployment record, 2026-09-06
+
+> **Historical record**, 2026-09-06, gateway 0.56.1. Not updated. The public
+> console at mesh.genesismesh.org now runs the released image behind Caddy
+> (`infrastructure/mesh-demo` in the `genesismesh` repository). For current
+> guidance see [operations](operations.md) and [distribution](distribution.md).
 
 Date: 2026-09-06. Application version: 0.56.1.
 

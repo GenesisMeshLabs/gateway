@@ -5,6 +5,10 @@ Date: 2026-09-07
 Status: Accepted for the current self-hosted deployment. This is not a default
 approval for other organizations or a workforce identity design.
 
+> **Historical record.** "The current deployment" here is the 2026-09
+> self-hosted deployment behind a Cloudflare tunnel. The public console now
+> runs from `infrastructure/mesh-demo` in the `genesismesh` repository.
+
 ## Decision
 
 Keep the existing scoped bearer authentication enabled. Leave OIDC disabled
@@ -31,8 +35,8 @@ not an individual person; do not distribute it as a shared workforce login.
 - Grant only required networks, service groups and metrics access. Review
   authority-admin permission separately; it does not replace operator signing.
 - Send credentials only to the approved HTTPS public origin or its controlled
-  local transport. The existing Cloudflare origin connection is private HTTP;
-  this decision does not claim end-to-end mTLS.
+  local transport. The Cloudflare origin connection of the 2026-09
+  deployment was private HTTP; this decision does not claim end-to-end mTLS.
 - Assign credential ownership and a rotation schedule in the deployment's
   operational inventory. Bearer tokens currently have no automatic expiry.
   The 2026-09-07 rotation and role-based schedule are recorded in ../acceptance-2026-09-07.md; named organizational handover remains.

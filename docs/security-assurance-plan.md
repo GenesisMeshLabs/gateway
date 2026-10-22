@@ -1,5 +1,8 @@
 # Security assurance and acceptance plan
 
+> **Historical record**, started 2026-09-07 for gateway v0.57.0. Not updated.
+> The current reporting process is in [SECURITY.md](../SECURITY.md).
+
 Started 2026-09-07 for the deployed v0.57.0 gateway. Scope includes Rust trust
 and HTTP code, embedded JavaScript, deployment/release automation, dependencies,
 the shipped container and the current self-hosted deployment. Findings require

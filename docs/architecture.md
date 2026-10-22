@@ -167,8 +167,8 @@ audited; `tests/architecture.rs` when the handler reaches storage directly.
 
 1. `gateway/config.rs`: the `Config` field, its parsing in `from_env_inner`
    and its bounds in `validate`.
-2. The settings table in `docs/platform.md` or `docs/operations.md`, and
-   `deploy/` when it needs a value there.
+2. The table in `docs/configuration.md`, and `deploy/` when it needs a
+   value there.
 3. A test of the accepted and refused values.
 
 TLS, audit delivery and Tokio settings are read in `gateway/tls.rs`,
