@@ -1,7 +1,7 @@
 # Authority services
 
 The console exposes 110 explicitly allowed authority operations in addition to
-eight gateway operations. The catalog at `/v1/services` and the OpenAPI document
+nine gateway operations. The catalog at `/v1/services` and the OpenAPI document
 describe each HTTP method, resource parameter, query field and request example.
 
 | Area | Available workflows |
@@ -16,11 +16,11 @@ describe each HTTP method, resource parameter, query field and request example.
 | Consensus | Vote, assemble proof and verify against explicit validator keys |
 | Data usage | Create/read license policy, issue intent and verify |
 | Evidence | Build and verify signed trust evidence |
-| Enrollment | Invite, join, heartbeat, renew and certificate revocation |
+| Enrollment | Join, heartbeat and renew |
 | Discovery | Signed agent registration, lookup, listing and deregistration |
 | Treaties | Issue, inspect, verify, revoke, import feeds and inspect trust paths |
 | Network | Genesis, policy, CRL, health, dashboard, atlas, node roster, the NA key history (1.5.0) and edge nodes (1.7.0, see [below](#edge-nodes-genesis-mesh-170)) |
-| Administration | Policy versions, rollback, operator-key revocation and NA key succession (1.5.0) |
+| Administration | Invites, certificate revocation, policy versions, rollback, operator-key revocation and NA key succession (1.5.0) |
 
 ## Using the console
 
@@ -80,7 +80,11 @@ explore the mesh, verify a treaty from another sovereign (and a tampered copy),
 recognize and revoke a membership across sovereigns, verify a governed
 secret's evidence chain in the browser, and see how changes are governed after
 the fact (1.4.0). The middle three read signed records a deployment publishes
-at `/demo-data/` (see `genesismesh/infrastructure/mesh-demo`). The last reads
+at `/demo-data/`. The gateway does not serve `/demo-data/`: route it at your
+ingress to a directory with `network.json`, `attestations.json`,
+`evidence.ndjson`, `executor-keys.json` and `status.json`, as
+`genesismesh/infrastructure/mesh-demo` does. Without it, only *The mesh*
+and *Changes governed after the fact* run. The last reads
 the demo authority's published evidence store status for its remediation
 counts (or that the records are off) and checks that this gateway forwards
 the seven remediation and review operations; demo access cannot call them,
@@ -247,7 +251,8 @@ forwards the body byte for byte and no query, so sign exactly what is sent.
 Since 1.5.0 the Network Authority's signing key can be replaced by a key
 succession that its root key signs, and the evidence store is archived as
 NA-signed audit packs before retention removes anything. The gateway forwards
-four new operations and leaves the audit pack itself out.
+four new operations, and *Apply retention* gains `through_sequence`. The
+audit pack itself is not forwarded.
 
 | Operation | Authority route | Group | Who |
 | --- | --- | --- | --- |
@@ -262,6 +267,12 @@ as it reads the genesis block. Recording a succession replaces the key the
 authority signs with, so it sits in `administration`, not `network`: a
 client needs that group and `authority_admin` to forward it, and the
 authority still checks the privileged tier and the record's signatures.
+
+The gateway forwards a succession but does not follow it: it pins the keys
+in each network's `anchors` and does not read the key history. After the
+succession takes effect the network goes not ready. See
+[key succession](key-succession.md) before an authority you serve records
+one.
 
 The record must reach the authority with two signatures already on it:
 the root key's, made offline (`genesis-mesh na succession sign`), and the
@@ -598,16 +609,16 @@ These are new in 1.7.0:
 
 The rules behind each code are on the core's operations page *The Edge Agent*.
 
-## Persistence and validation
+## Persistence (v0.56.1 record)
 
-Multi-worker authorities require durable active data-license policy storage.
+At v0.56.1, multi-worker authorities require durable active data-license policy storage.
 The accompanying reference-authority fix adds migration
 `010_data_license_policies.sql` and database-backed policy reads/writes. Older
 authority builds used process-local policy memory and can lose or disagree on
 active policy state; the gateway cannot repair that by retrying requests.
 
-Local validation covers 56 Rust tests and Python-compatible browser signatures.
-Live workflows exercised all seven SDK areas, node enrollment/heartbeat/renewal,
+At v0.56.1, local validation covered 56 Rust tests and Python-compatible
+browser signatures. Live workflows exercised all seven SDK areas, node enrollment/heartbeat/renewal,
 and signed agent registration/lookup/deregistration. Temporary attestation,
 treaty and node credentials were revoked after testing. An explicitly named,
 short-lived demonstration data-source policy was initialized on authority-a;

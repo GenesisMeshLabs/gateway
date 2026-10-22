@@ -42,8 +42,9 @@ services:
         max-size: 10m
         max-file: "5"
     ports:
-      # Loopback only. The public path is the Cloudflare tunnel, which reaches
-      # this container over the compose network as http://gateway:8080.
+      # Loopback only. A public path, such as the example Cloudflare tunnel
+      # below, reaches this container over the compose network as
+      # http://gateway:8080.
       - "127.0.0.1:8080:8080"
 
   quota:

@@ -1,5 +1,10 @@
 # Gateway improvement plan
 
+> **Historical record** (2026-09, gateway v0.57.2). Not updated. The
+> *Public deployment* row describes the 2026-09 deployment; the public console
+> now runs from `infrastructure/mesh-demo` in the `genesismesh` repository.
+> For current controls see [platform controls](platform.md).
+
 Reviewed against gateway v0.57.2, including security and recovery acceptance on 2026-09-07. These are
 engineering controls, not claims of certification or universal production readiness.
 

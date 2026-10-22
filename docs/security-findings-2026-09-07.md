@@ -1,5 +1,9 @@
 # Security findings and verification, 2026-09-07
 
+> **Historical record**, 2026-09-07. Not updated; dependency versions below
+> are those of that date. Report new findings as [SECURITY.md](../SECURITY.md)
+> describes.
+
 Scope: gateway Rust/JavaScript/Actions source, locked Rust dependencies, Linux
 AMD64 runtime, isolated HTTP replica and self-hosted public ingress. The plan is
 [security-assurance-plan.md](security-assurance-plan.md). Raw local reports are

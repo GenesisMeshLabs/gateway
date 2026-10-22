@@ -233,7 +233,7 @@ async function checkEvents(events, naPublicKey, executorKeyList, resourceId) {
 }
 
 function report(box, ctx, status, events, failures, decisions, executions, linked, last) {
-  step(box, failures.length === 0, 'Checked ' + events.length + ' signed events in this browser', decisions + ' decisions and ' + executions + ' executions: every signature, digest and store link' + (failures.length ? '. Failures: ' + failures.slice(0, 5).join('; ') : ''));
+  step(box, failures.length === 0, 'Checked ' + events.length + ' signed events in this browser', decisions + ' decisions and ' + executions + ' executions: decision and execution signatures, every digest and store link' + (failures.length ? '. Failures: ' + failures.slice(0, 5).join('; ') : ''));
   if (last) {
     const head = ctx.resource_head;
     step(box, linked > 0, 'Resource ' + ctx.resource_id + ': ' + (linked + 1) + ' consecutive records linked by digest', 'latest is ' + plain(last.record.resource_action) + ' ' + JSON.stringify(last.record.execution_parameters));

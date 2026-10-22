@@ -1,11 +1,17 @@
 # Native Windows operation
 
+> **Historical record** (2026-09-11). `mesh.genesismesh.org` now runs from
+> `infrastructure/mesh-demo` in the `genesismesh` repository, a Docker
+> Compose stack behind Caddy. The service layout below is one way to run the
+> gateway natively on Windows; the acceptance notes describe the 2026-09
+> migration, not a current deployment.
+
 The Rust gateway can run under Windows Service Control Manager without Docker
 or a signed-in desktop session. Use the verified Windows release executable;
 do not rebuild or initialize trust state as part of a runtime migration.
 
 **Acceptance status, 2026-09-11 19:38 UTC:** migration completed. All ten native
-services are Running with Automatic startup under LocalService. Local and public
+services were Running with Automatic startup under LocalService. Local and public
 `/ready` return ready; all four mesh networks are trust-ready. Operator access
 returns 200 and retired credentials return 401 both locally and publicly. The
 four stored CRL floors and revocations were preserved; the audit count increased
@@ -17,8 +23,8 @@ The first read-only-volume backup attempt failed before native startup. The
 successful migration copied the stopped SQLite directory, including any journal
 files, and used SQLite backup plus integrity checks before transferring state.
 The installer registers pending deployments with Manual startup; the migration
-enables automatic startup after readiness and state acceptance. Do not rerun the
-migration script over the now-active deployment.
+enables automatic startup after readiness and state acceptance. The migration
+script was not meant to be rerun over the deployment it had activated.
 
 Before migration, the native quota backend admitted exactly 7 of 64 concurrent
 requests under a limit of 7, rejected unauthenticated access, and retained its
@@ -28,12 +34,12 @@ drill have not been performed.
 
 ## Service layout
 
-The prepared deployment lives in `C:\ProgramData\GenesisMeshGateway`:
+The 2026-09 deployment lived in `C:\ProgramData\GenesisMeshGateway`:
 
 | Service | Process and responsibility |
 | --- | --- |
 | `GenesisMeshGateway` | Released Rust gateway, loopback port 8080 |
-| `GenesisMeshTunnel` | Dedicated cloudflared connector for `mesh.genesismesh.org` |
+| `GenesisMeshTunnel` | Dedicated cloudflared connector for the public hostname |
 | `GenesisMeshQuotaLink` | Restricted OpenSSH forwarding to the existing authority host's Redis service |
 | `GenesisMeshAuthorityA`, `GenesisMeshAuthorityB`, `GenesisMeshAuthorityAnonymous` | Existing reference authorities, served by native Python and Waitress on loopback |
 | `GenesisMeshRevocationA`, `GenesisMeshRevocationB`, `GenesisMeshRevocationAnonymous` | Existing authority-owned revocation consumers |
@@ -115,7 +121,7 @@ Get-CimInstance Win32_Service |
   Where-Object Name -like 'GenesisMesh*' |
   Select-Object Name, State, StartMode, StartName
 Invoke-RestMethod http://127.0.0.1:8080/ready
-Invoke-RestMethod https://mesh.genesismesh.org/ready
+Invoke-RestMethod https://gateway.example.org/ready
 ```
 
 Check revocation consumer status files under `state` and bounded service logs

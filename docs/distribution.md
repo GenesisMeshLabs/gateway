@@ -21,6 +21,9 @@ ships inside the same binary and always calls its own origin.
    target/release/genesis-mesh-gateway -Platform linux-amd64`. Windows uses the
    `.exe` binary and platform `windows-amd64`. The packager checks the version,
    bundles an explicit allowlist, and emits a SHA-256 sidecar plus binary manifest.
+   The ZIP carries the binaries and the operator documentation; links to
+   other pages and to `deploy/` files resolve in the
+   [repository](https://github.com/GenesisMeshLabs/gateway), not in the ZIP.
 3. **Release artifacts:** a release tag runs `distribution.yml`, which builds
    Windows/Linux binary ZIPs and a multi-platform OCI archive of the published
    image (the workflow checks that the archive and the pushed image have the
@@ -44,13 +47,14 @@ policy in the image or archive. The packaging script excludes them by allowlist.
 Checksums detect corruption; they are not publisher signatures. The release
 signatures below are; verify them before deploying.
 
-For an offline transfer of a locally built multi-platform Docker image:
+For an offline transfer of a locally built multi-platform Docker image
+(replace `X.Y.Z` with the release you deploy, here and below):
 
 ```sh
-docker save -o genesis-mesh-gateway-0.56.1-images.tar genesis-mesh-gateway:0.56.1
+docker save -o genesis-mesh-gateway-X.Y.Z-images.tar genesis-mesh-gateway:X.Y.Z
 # Transfer the archive and its SHA-256 sidecar through your approved channel.
-docker load -i genesis-mesh-gateway-0.56.1-images.tar
-docker run --rm genesis-mesh-gateway:0.56.1 --version
+docker load -i genesis-mesh-gateway-X.Y.Z-images.tar
+docker run --rm genesis-mesh-gateway:X.Y.Z --version
 ```
 
 Compare the archive checksum before loading (`sha256sum` on Linux or
@@ -73,10 +77,21 @@ credentials. An authentic expired bootstrap CRL with a configured source URL is
 allowed to start but remains not ready until refresh succeeds. A configuration
 check alone is therefore not proof of readiness.
 
-Use `deploy/compose.yml` with `GATEWAY_IMAGE` set to a verified image digest and
-`GATEWAY_POLICY_FILE` set to an absolute file path. The generic distribution has
-no Cloudflare account or developer-host dependency. TLS ingress is operated
-separately; Compose publishes only to host loopback.
+To run the released image with `deploy/compose.yml`, set `GATEWAY_IMAGE` to a
+verified image digest, `GATEWAY_POLICY_FILE` to the policy's absolute path,
+`GATEWAY_REDIS_URL_FILE` to the absolute path of a file holding a `redis://` or
+`rediss://` URL you operate, and `GATEWAY_QUOTA_NAMESPACE`. The file has no
+Redis service. It keeps durable state, so before the first start run the same
+service once with `--init-state`:
+
+```sh
+docker compose -f deploy/compose.yml run --rm gateway --init-state
+docker compose -f deploy/compose.yml up -d
+```
+
+The generic distribution has no Cloudflare account or developer-host
+dependency. TLS ingress is operated separately; Compose publishes only to host
+loopback.
 
 ## Multiple replicas
 
@@ -151,9 +166,9 @@ and the multiarchitecture OCI archive with Sigstore. Verify the image by digest:
 
 ```sh
 IMAGE=ghcr.io/genesismeshlabs/genesis-mesh-gateway
-DIGEST="$(docker buildx imagetools inspect "$IMAGE:1.1.0" --format '{{json .Manifest.Digest}}' | tr -d '"')"
+DIGEST="$(docker buildx imagetools inspect "$IMAGE:X.Y.Z" --format '{{json .Manifest.Digest}}' | tr -d '"')"
 cosign verify "$IMAGE@$DIGEST" \
-  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/v1.1.0 \
+  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/vX.Y.Z \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -166,7 +181,7 @@ verify each file before extracting or importing it:
 
 ```sh
 cosign verify-blob gateway-oci.tar --bundle gateway-oci.tar.sigstore.json \
-  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/v0.57.0 \
+  --certificate-identity https://github.com/GenesisMeshLabs/gateway/.github/workflows/distribution.yml@refs/tags/vX.Y.Z \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -182,5 +197,5 @@ name it when you import it, and deploy it by the digest the release notes list:
 
 ```sh
 skopeo copy --all --preserve-digests oci-archive:gateway-oci.tar \
-  docker://registry.example.com/genesis-mesh-gateway:1.1.0
+  docker://registry.example.com/genesis-mesh-gateway:X.Y.Z
 ```
