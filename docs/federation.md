@@ -22,7 +22,8 @@ requires out-of-band confirmation. This is limited wire compatibility evidence,
 not full RFC conformance or proof of an independent authority implementation.
 
 Review the fragment before adding it to gateway policy. Publication defaults off.
-Run the gateway configuration check before reloading. Never replace an existing
+Run `genesis-mesh-gateway --check-config` before restarting the gateway with
+the new policy; the gateway reads policy only at startup. Never replace an existing
 CRL high-water mark with an older sequence. Expired authority delegation must be
 renewed and signed by that sovereign's operator; the gateway does not renew it.
 
@@ -54,8 +55,13 @@ their own protocol-compatible consumer. No gateway signing key is required.
 4. Alert on unavailable consumers, stale/unverified publishers and sequence lag.
    Investigate source rollback or same-sequence changes; never reset the store to
    make synchronization appear healthy.
-5. For key rotation, coordinate signed identity renewal, explicit key pin changes
-   and treaty renewal with both operators; preserve revocation history and backups.
+5. A planned NA key rotation is a key succession (Genesis Mesh 1.5.0). The
+   gateway does not follow the key history, and no key pin change lets it
+   accept the authority's CRLs after the succession takes effect; see
+   [key succession](key-succession.md) for the not-ready window and what to
+   do. A compromised NA key means a new identity: onboard it as a new
+   network, and coordinate treaty renewal with both operators. Preserve
+   revocation history and backups.
 
 The public mesh is a view of opted-in records. Demo memberships are sample trust
 records, not deployed applications. External adoption, governance and independent
