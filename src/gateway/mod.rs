@@ -142,6 +142,7 @@ fn open_routes() -> Vec<(&'static str, MethodRouter<AppState>)> {
         ("/assets/grants.js", get(ui::grants_script)),
         ("/assets/edge.js", get(ui::edge_script)),
         ("/assets/style.css", get(ui::style)),
+        ("/assets/social-card.png", get(ui::social_card)),
         ("/api", get(handlers::index)),
         ("/v1/services", get(services::catalog)),
         ("/v1/mesh", get(mesh::overview)),

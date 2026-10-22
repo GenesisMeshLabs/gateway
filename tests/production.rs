@@ -436,6 +436,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
         "/assets/remediation.js",
         "/assets/keys.js",
         "/assets/grants.js",
+        "/assets/social-card.png",
         "/openapi.json",
         "/no/such/path",
     ] {
@@ -1454,6 +1455,42 @@ async fn the_console_serves_its_remediation_views_and_tour_step() {
             .starts_with(content_type));
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         assert!(String::from_utf8_lossy(&bytes).contains(marker), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn the_console_serves_the_link_preview_card_its_page_names() {
+    let app = router(fixture().0);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/social-card.png")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    let png = response.into_body().collect().await.unwrap().to_bytes();
+    // The PNG signature, then the IHDR width and height: the Open Graph 1200x630.
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 1200);
+    assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 630);
+
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let page = response.into_body().collect().await.unwrap().to_bytes();
+    let page = String::from_utf8_lossy(&page);
+    for tag in [
+        r#"<meta property="og:image" content="https://mesh.genesismesh.org/assets/social-card.png">"#,
+        r#"<meta name="twitter:card" content="summary_large_image">"#,
+        r#"<meta name="twitter:image" content="https://mesh.genesismesh.org/assets/social-card.png">"#,
+    ] {
+        assert!(page.contains(tag), "{tag}");
     }
 }
 
