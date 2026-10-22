@@ -404,6 +404,68 @@ mod tests {
         std::fs::remove_dir_all(folder).ok();
     }
 
+    /// `GET /api` lists every production endpoint except the console page and
+    /// its assets, and the authority service route, which it names apart.
+    #[tokio::test]
+    async fn the_api_index_lists_every_production_endpoint() {
+        let cfg = Config {
+            durable: None,
+            oidc: None,
+            distributed_quota: None,
+            development: true,
+            security: None,
+            addr: "127.0.0.1:0".parse().unwrap(),
+            token: Some(TOKEN.into()),
+            timeout: std::time::Duration::from_secs(5),
+            max_body_bytes: 65536,
+            max_inflight: 8,
+            max_batch: 8,
+            cpu_workers: 2,
+            max_batch_jobs: 1,
+            audit_retention_days: 7,
+        };
+        let response = router(cfg)
+            .oneshot(Request::builder().uri("/api").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let index: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let listed: Vec<&str> = index["endpoints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e.as_str().unwrap())
+            .collect();
+        let service_route = "/v1/networks/{network}/services/{operation}";
+        assert_eq!(index["authority_service_route"], service_route);
+        let open = open_routes()
+            .into_iter()
+            .map(|(path, _)| path)
+            .filter(|path| *path != "/" && !path.starts_with("/assets/"))
+            .map(|path| format!("GET {path}"));
+        let guarded = guarded_routes(false)
+            .into_iter()
+            .map(|(path, _)| path)
+            .filter(|path| *path != service_route)
+            .map(|path| {
+                let method = if path.starts_with("/verify") {
+                    "POST"
+                } else {
+                    "GET"
+                };
+                format!("{method} {path}")
+            });
+        for endpoint in open.chain(guarded) {
+            assert!(
+                listed.contains(&endpoint.as_str()),
+                "{endpoint} is missing from GET /api endpoints"
+            );
+        }
+    }
+
     /// Open and guarded routes are disjoint, so each route has exactly one
     /// audit class.
     #[test]
