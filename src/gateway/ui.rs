@@ -64,6 +64,13 @@ pub(super) async fn style() -> impl IntoResponse {
         include_str!("../../ui/style.css"),
     )
 }
+/// The link-preview image named by the page's Open Graph tags.
+pub(super) async fn social_card() -> impl IntoResponse {
+    (
+        [("content-type", "image/png")],
+        include_bytes!("../../ui/social-card.png").as_slice(),
+    )
+}
 pub(super) async fn specification() -> Json<Value> {
     static SPEC: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
     Json(
