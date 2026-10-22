@@ -1,0 +1,42 @@
+==> 1. A local Network Authority and its signed policy fragment
+$ genesis-mesh init --network-name quickstart > init.log 2>&1
+$ (genesis-mesh na start > na.log 2>&1 &); sleep 5
+$ NA_KEY=$(grep -v "^#" .genesis-mesh/keys/na.pub)
+$ genesis-mesh-operator --origin http://127.0.0.1:8443 --network quickstart --authority-key "$NA_KEY" --allow-http --report preflight.json --policy-fragment network.json > /dev/null
+$ jq "{network, passed}" preflight.json
+{
+  "network": "quickstart",
+!ok   "passed": true
+}
+==> 2. One client, stored as the SHA-256 of its token
+$ TOKEN=$(openssl rand -hex 32)
+$ DIGEST=$(printf %s "$TOKEN" | sha256sum | cut -d" " -f1)
+$ jq --arg d "$DIGEST" "{revision: \"quickstart-1\", clients: [{id: \"quickstart-client\", token_sha256: \$d, networks: [\"quickstart\"], metrics: true, requests_per_minute: 120}], networks: .}" network.json > policy.json
+==> 3. Check the policy, initialize durable state, start
+$ export GATEWAY_POLICY_FILE=$PWD/policy.json
+$ genesis-mesh-gateway --check-config
+!ok Configuration valid
+$ export GATEWAY_STATE_FILE=$PWD/state.db
+$ genesis-mesh-gateway --init-state
+!ok Durable state initialized from verified operator policy
+$ (genesis-mesh-gateway > gateway.log 2>&1 &); sleep 2
+$ curl -s http://127.0.0.1:8080/ready; echo
+!ok {"status":"ready"}
+==> 4. Join a node, then verify its certificate at the gateway
+$ INVITE=$(genesis-mesh admin invite --role role:client)
+$ genesis-mesh join --na http://127.0.0.1:8443 --token "$INVITE" 2>/dev/null
+!ok Joined quickstart as role:client
+Certificate: d7ccfbc4-c36a-4538-95e7-4acf64d2e956
+Config: genesis-mesh.toml
+$ CERT_ID=$(jq -r .cert_id .genesis-mesh/node.cert.json)
+$ AUTH="Authorization: Bearer $TOKEN"
+$ jq "{certificate: .}" .genesis-mesh/node.cert.json > verify.json
+$ curl -s -H "$AUTH" --json @verify.json http://127.0.0.1:8080/verify; echo
+!ok {"trusted":true,"reasons":[]}
+==> 5. Revoke it at the authority; the gateway reads the new CRL within a minute
+$ genesis-mesh admin revoke "$CERT_ID" --reason cessation_of_operation > revoke.log
+$ until curl -s -H "$AUTH" http://127.0.0.1:8080/v1/networks | jq -e ".networks[0].revocation.revoked_count == 1" > /dev/null; do sleep 5; done
+$ curl -s -H "$AUTH" http://127.0.0.1:8080/v1/networks | jq -c ".networks[0] | {name, ready, sequence: .revocation.sequence}"
+{"name":"quickstart","ready":true,"sequence":1}
+$ curl -s -H "$AUTH" --json @verify.json http://127.0.0.1:8080/verify; echo
+!no {"trusted":false,"reasons":["Revoked { reason: \"cessation_of_operation\" }"]}
