@@ -170,7 +170,7 @@ pub(super) async fn index(State(state): State<AppState>) -> Json<Value> {
             "shared_quotas":state.cfg.distributed_quota.is_some(),
             "multi_issuer_crls":true
         },
-        "endpoints": ["GET /api", "GET /openapi.json", "GET /health", "GET /ready", "GET /v1/networks", "GET /v1/mesh", "GET /v1/services", "GET /metrics", "POST /verify", "POST /verify/batch"],
+        "endpoints": ["GET /api", "GET /openapi.json", "GET /health", "GET /ready", "GET /v1/networks", "GET /v1/mesh", "GET /v1/demo", "GET /v1/services", "GET /metrics", "POST /verify", "POST /verify/batch"],
         "authority_service_route": "/v1/networks/{network}/services/{operation}",
         "service_catalog": "/v1/services"
     }))
