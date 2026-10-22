@@ -36,9 +36,10 @@ pub struct Config {
     pub cpu_workers: usize,
     /// Concurrent batches; reserve CPU capacity for single requests when possible.
     pub max_batch_jobs: usize,
-    /// Days a durable audit row is kept after the collector acknowledged it;
-    /// 0 keeps delivered rows. Undelivered rows are never deleted.
-    /// `GATEWAY_AUDIT_RETENTION_DAYS`, default 7 (1.7.1).
+    /// Days durable audit rows are kept. With a collector
+    /// (`GATEWAY_AUDIT_URL`): after it acknowledged them, and undelivered
+    /// rows are kept. Without one: after they were written. 0 keeps every
+    /// row. `GATEWAY_AUDIT_RETENTION_DAYS`, default 7 (1.7.1).
     pub audit_retention_days: u32,
 }
 
