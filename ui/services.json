@@ -1375,6 +1375,18 @@
     }
   },
   {
+    "id": "key_history-reissue",
+    "group": "network",
+    "name": "Reissue",
+    "description": "Re-issue every record of a succeeded key that outlives its horizon, now (1.8.0).",
+    "method": "POST",
+    "upstream_path": "/admin/na/reissue",
+    "admin": true,
+    "parameters": [],
+    "query": [],
+    "body": {}
+  },
+  {
     "id": "out_of_band-submit-observation",
     "group": "out_of_band",
     "name": "Submit observation",
