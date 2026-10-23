@@ -39,7 +39,7 @@ pub struct Config {
     /// Days durable audit rows are kept. With a collector
     /// (`GATEWAY_AUDIT_URL`): after it acknowledged them, and undelivered
     /// rows are kept. Without one: after they were written. 0 keeps every
-    /// row. `GATEWAY_AUDIT_RETENTION_DAYS`, default 7 (1.7.1).
+    /// row. `GATEWAY_AUDIT_RETENTION_DAYS`, default 7 (1.8.0).
     pub audit_retention_days: u32,
 }
 

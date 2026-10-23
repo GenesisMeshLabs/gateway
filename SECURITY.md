@@ -34,8 +34,8 @@ Only the latest minor release receives security fixes.
 
 | Version | Status |
 |---|---|
-| `1.7.x` | Supported |
-| `< 1.7` | Unsupported: upgrade to 1.7 |
+| `1.8.x` | Supported |
+| `< 1.8` | Unsupported: upgrade to 1.8 |
 
 ## In Scope
 

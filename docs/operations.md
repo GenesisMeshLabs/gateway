@@ -216,8 +216,8 @@ Prometheus text format.
 | `gateway_failures_total` | counter | none | Responses with a `5xx` status |
 | `gateway_denied_total` | counter | none | Requests refused for lack of a valid credential (`401`) |
 | `gateway_crypto_active` | gauge | none | CPU jobs running now |
-| `gateway_demo_requests_total` (unreleased; 1.7.1) | counter | none | Requests by a public demo client |
-| `gateway_unauthenticated_requests_total` (unreleased; 1.7.1) | counter | `route` | Requests to a credentialed route without a valid credential |
+| `gateway_demo_requests_total` (1.8.0) | counter | none | Requests by a public demo client |
+| `gateway_unauthenticated_requests_total` (1.8.0) | counter | `route` | Requests to a credentialed route without a valid credential |
 | `gateway_request_duration_seconds` | histogram | `le` | Time to answer each request, health checks included |
 | `gateway_audit_pending` | gauge | none | Durable audit rows not yet delivered; only with `GATEWAY_STATE_FILE` |
 | `gateway_state_bytes` | gauge | none | Size of the durable state file; only with `GATEWAY_STATE_FILE` |
