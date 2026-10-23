@@ -348,7 +348,7 @@ impl DurableState {
     /// Delete audit rows the collector acknowledged more than `retention`
     /// before `now`, a chunk at a time. Rows not yet delivered are never
     /// deleted, however old. Rows acknowledged without a delivery time (by a
-    /// release before 1.7.1) get `now` as theirs first. Returns the rows deleted.
+    /// release before 1.8.0) get `now` as theirs first. Returns the rows deleted.
     pub fn prune_delivered(
         &self,
         retention: std::time::Duration,
@@ -366,7 +366,7 @@ impl DurableState {
     /// Delete every audit row written more than `retention` before `now`,
     /// delivered or not, a chunk at a time. Only for a store without a
     /// collector, where rows can never be delivered and the store is a bounded
-    /// local log. Rows written without a time (before 1.7.1) get `now` as
+    /// local log. Rows written without a time (before 1.8.0) get `now` as
     /// theirs first. Returns the rows deleted.
     pub fn prune_recorded(
         &self,

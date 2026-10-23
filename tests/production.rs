@@ -471,7 +471,7 @@ async fn public_pages_and_unknown_paths_do_not_fill_the_durable_audit() {
     }
 
     // Requests to a guarded route without a valid credential are logged and
-    // counted, never stored: anyone can send them (1.7.1; 1.7.0 stored them).
+    // counted, never stored: anyone can send them (1.8.0; 1.7.0 stored them).
     let unknown = "an-unknown-token-that-is-at-least-32-bytes-long";
     for token in [None, Some(unknown)] {
         assert_eq!(
@@ -2973,7 +2973,7 @@ async fn public_mesh_marks_failed_upstreams_and_coalesces_refreshes() {
 
 /// The demo token is published: its requests are counted, not written to
 /// the durable audit store, which anyone could otherwise fill until every
-/// client gets 503 (1.7.1). Every other client is still audited.
+/// client gets 503 (1.8.0). Every other client is still audited.
 #[tokio::test]
 async fn demo_requests_are_counted_but_not_durably_audited() {
     use genesis_mesh::gateway::durable::DurableState;

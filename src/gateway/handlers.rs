@@ -76,7 +76,7 @@ pub(super) async fn auth(
     let Some(principal) = identity else {
         // Anyone can send a request without a valid credential, so these are
         // logged and counted by route but never written to the durable
-        // store, which would otherwise fill and fail closed (1.7.1).
+        // store, which would otherwise fill and fail closed (1.8.0).
         state
             .metrics
             .denied

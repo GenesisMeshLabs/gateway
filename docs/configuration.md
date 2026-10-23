@@ -49,7 +49,7 @@ the policy file (`GATEWAY_POLICY_FILE`); its format is in
 
 | Setting | Default | Valid values | Checked | Details |
 | --- | --- | --- | --- | --- |
-| `GATEWAY_AUDIT_RETENTION_DAYS` (unreleased; 1.7.1) | `7` | 0 to 3650; 0 keeps every row | check-config | [Platform controls](platform.md#audit) |
+| `GATEWAY_AUDIT_RETENTION_DAYS` (1.8.0) | `7` | 0 to 3650; 0 keeps every row | check-config | [Platform controls](platform.md#audit) |
 | `GATEWAY_AUDIT_URL` | unset (no collector) | An HTTPS URL | start | [Platform controls](platform.md#audit) |
 | `GATEWAY_AUDIT_TOKEN_FILE` | unset | A file holding the collector's bearer token | start | [Platform controls](platform.md#audit) |
 | `RUST_LOG` | `info,tower_http=info` | A `tracing` filter, such as `info` or `warn,genesis_mesh=info` | start | JSON logs on stdout; [operations](operations.md#observability-and-incident-response) |
