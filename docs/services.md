@@ -270,7 +270,8 @@ authority still checks the privileged tier and the record's signatures.
 
 The gateway forwards a succession but does not follow it: it pins the keys
 in each network's `anchors` and does not read the key history. After the
-succession takes effect the network goes not ready. See
+succession takes effect, re-pin the network to the new key before its last
+CRL expires, or it goes not ready. See
 [key succession](key-succession.md) before an authority you serve records
 one.
 
