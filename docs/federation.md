@@ -56,12 +56,12 @@ their own protocol-compatible consumer. No gateway signing key is required.
    Investigate source rollback or same-sequence changes; never reset the store to
    make synchronization appear healthy.
 5. A planned NA key rotation is a key succession (Genesis Mesh 1.5.0). The
-   gateway does not follow the key history, and no key pin change lets it
-   accept the authority's CRLs after the succession takes effect; see
-   [key succession](key-succession.md) for the not-ready window and what to
-   do. A compromised NA key means a new identity: onboard it as a new
-   network, and coordinate treaty renewal with both operators. Preserve
-   revocation history and backups.
+   gateway does not follow the key history: once the succession takes
+   effect, re-pin the network to the new key (an authority on 1.8.0 or
+   later) before its last CRL expires; see
+   [key succession](key-succession.md). A compromised NA key means a new
+   identity: onboard it as a new network, and coordinate treaty renewal with
+   both operators. Preserve revocation history and backups.
 
 The public mesh is a view of opted-in records. Demo memberships are sample trust
 records, not deployed applications. External adoption, governance and independent

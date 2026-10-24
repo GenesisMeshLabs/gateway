@@ -48,7 +48,8 @@ An administrator rolling back the entire disk can roll back history; prevent
 that through protected backups, independent sequence records and access control.
 Issuer-key rotation needs an explicit reviewed checkpoint migration. An
 authority that replaces its NA key by a key succession (Genesis Mesh 1.5.0)
-cannot be followed: the gateway does not read the key history. See
+is not followed: the gateway does not read the key history, and its operator
+re-pins the network to the new key once the succession takes effect. See
 [key succession](key-succession.md).
 
 The state file carries its format (`metadata.version`, 1) and the schema

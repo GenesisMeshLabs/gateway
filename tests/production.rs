@@ -115,6 +115,82 @@ async fn durable_gateway_restart_restores_revocations_and_audit_without_upstream
     std::fs::remove_dir_all(folder).unwrap();
 }
 
+#[tokio::test]
+async fn reonboarding_after_a_key_succession_starts_from_the_new_issuer() {
+    // NA 1.8.0 names the signing key as the CRL's issuer, so after a succession the operator re-pins
+    // the network to the new key; the outgoing key's checkpoint stays in the store, unused.
+    use genesis_mesh::gateway::durable::DurableState;
+    let folder = std::env::temp_dir().join(format!("gateway-state-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let path = folder.join("state.db");
+    DurableState::initialize(&path).unwrap();
+    let (mut cfg, old_cert, _) = fixture();
+    let durable = DurableState::open(&path).unwrap();
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    let n = &cfg.security.as_ref().unwrap().networks["public-agency"];
+    durable.checkpoint("public-agency", n).unwrap();
+    drop(durable);
+
+    let next = KeyPair::generate().unwrap();
+    let now = Utc::now();
+    let mut crl = CertificateRevocationList {
+        crl_id: "snapshot-2".into(),
+        sequence: 6,
+        issued_at: now - chrono::Duration::minutes(1),
+        next_update: now + chrono::Duration::hours(1),
+        issuer: "authority-2".into(),
+        revoked_certificates: vec![],
+        signatures: vec![],
+    };
+    crl.sign(&next, "authority-2").unwrap();
+    let mut renewed = old_cert.clone();
+    renewed.cert_id = "certificate-2".into();
+    renewed.issued_by = "authority-2".into();
+    renewed.signatures.clear();
+    renewed.sign(&next, "authority-2").unwrap();
+    let policy = cfg.security.as_mut().unwrap();
+    policy.revision = "test-2".into();
+    let n = policy.networks.get_mut("public-agency").unwrap();
+    n.anchors = [("authority-2".into(), next.public_key_b64())].into();
+    n.crl = crl;
+    n.minimum_crl_sequence = 6;
+
+    let durable = std::sync::Arc::new(DurableState::open(&path).unwrap());
+    durable.restore(cfg.security.as_mut().unwrap()).unwrap();
+    assert_eq!(
+        cfg.security.as_ref().unwrap().networks["public-agency"]
+            .crl
+            .crl_id,
+        "snapshot-2"
+    );
+    cfg.durable = Some(durable.clone());
+    let app = router(cfg);
+    let (status, result) = call(
+        &app,
+        "/verify",
+        Some(json!({"certificate":renewed})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["trusted"], true, "{result}");
+    let (status, result) = call(
+        &app,
+        "/verify",
+        Some(json!({"certificate":old_cert})),
+        Some(TOKEN),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        result["trusted"], false,
+        "a certificate of the outgoing key is refused until renewed"
+    );
+    drop(app);
+    drop(durable);
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
 #[test]
 fn durable_state_rejects_corruption_conflicts_and_forged_progress() {
     use genesis_mesh::gateway::durable::DurableState;
