@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: {node-version: "24"}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "3.12"}
       # Every console test file runs; finding none is a failure, not a pass.
       - name: Console tests
@@ -68,7 +68,7 @@ jobs:
         with:
           toolchain: stable
           components: llvm-tools-preview
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with: {tool: cargo-llvm-cov@0.9.1}
       - name: Line coverage is at or above the floor
         run: cargo llvm-cov --locked --all-targets --summary-only --fail-under-lines "$COVERAGE_FLOOR"
@@ -107,7 +107,7 @@ jobs:
       # Missing vectors or harness fail the job: skipped is not green.
       - name: The console's signing vectors are the core's
         run: cmp core/conformance/vectors/admin_auth.json tests/reference/admin_auth.json
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "3.14"}
       # BuildKit and the Dockerfile's base images (pinned by digest) come through
       # mirrors, falling back to Docker Hub: its outages failed every image job.
@@ -189,7 +189,7 @@ jobs:
           repository: GenesisMeshLabs/genesismesh
           ref: ${{ env.CORE_REF }}
           path: core
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with: {python-version: "3.12"}
       - run: python tests/reference/build_service_catalog.py --core core --check
       - name: Admin signature vectors are the core's
