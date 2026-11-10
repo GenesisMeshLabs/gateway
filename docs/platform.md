@@ -215,4 +215,4 @@ mesh data isolation. Record findings and remediation before accreditation.
 
 ## Minimal runtime health probe
 
-From 0.57.1 the container uses a digest-pinned distroless runtime without curl or a shell. Its exec healthcheck runs the gateway's bounded local HTTP --healthcheck command. Native mTLS deployments must supply a compatible client-certificate probe; this HTTP probe fails against a TLS-only listener and does not create an unauthenticated bypass. A deployment whose listener is plain HTTP behind its ingress uses the native probe.
+From 0.57.1 the container uses a digest-pinned distroless runtime without curl or a shell. From 1.10.1 the binaries are static (musl) and the runtime is `distroless/static`: no libc, OpenSSL or zlib in the image. Its exec healthcheck runs the gateway's bounded local HTTP --healthcheck command. Native mTLS deployments must supply a compatible client-certificate probe; this HTTP probe fails against a TLS-only listener and does not create an unauthenticated bypass. A deployment whose listener is plain HTTP behind its ingress uses the native probe.
