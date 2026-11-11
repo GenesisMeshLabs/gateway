@@ -115,5 +115,62 @@ mod tests {
                 vector["id"]
             );
         }
+        // All of them passed: the conformance receipt, when asked for.
+        if let Some(dir) = std::env::var_os(RECEIPTS).filter(|d| !d.is_empty()) {
+            write_receipt(std::path::Path::new(&dir), vectors.len());
+        }
+    }
+
+    /// Conformance receipts (the core's contract bundle, schema
+    /// `gm.contract.receipt/1`): with `GM_CONFORMANCE_RECEIPTS` naming a
+    /// directory, the runner of the shared suite writes
+    /// `<dir>/admin_auth.admin_auth.json` once every vector passed, for the
+    /// core's `gm_contract.py receipt-check`. Unset, nothing is written; a
+    /// failing runner writes nothing. The browser signer
+    /// (`tools/test_ui_signing.mjs`) runs the same vectors but writes no
+    /// receipt: the check adds up the receipts of a suite, and every vector
+    /// counts once.
+    const RECEIPTS: &str = "GM_CONFORMANCE_RECEIPTS";
+
+    fn receipt(ran: usize) -> Value {
+        json!({
+            "schema": "gm.contract.receipt/1",
+            "suite": "admin_auth",
+            "file": "tests/reference/admin_auth.json",
+            "runner": "src/admin_auth.rs:tests::matches_the_shared_reference_vectors",
+            // The suite's vectors have no kind: they count under "*".
+            "run": {"*": ran},
+            "not_run": {},
+        })
+    }
+
+    fn write_receipt(dir: &std::path::Path, ran: usize) {
+        std::fs::create_dir_all(dir).unwrap();
+        let mut text = serde_json::to_string_pretty(&receipt(ran)).unwrap();
+        text.push('\n');
+        std::fs::write(dir.join("admin_auth.admin_auth.json"), text).unwrap();
+    }
+
+    #[test]
+    fn the_receipt_names_the_suite_copy_and_counts_every_vector_once() {
+        let suite: Value =
+            serde_json::from_str(include_str!("../tests/reference/admin_auth.json")).unwrap();
+        let vectors = suite["vectors"].as_array().unwrap();
+        // The receipt counts kinds; this suite has none.
+        assert!(vectors.iter().all(|v| v.get("kind").is_none()));
+        let dir = std::env::temp_dir().join(format!("gm-gateway-receipt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_receipt(&dir, vectors.len());
+        let written: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("admin_auth.admin_auth.json")).unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(written, receipt(vectors.len()));
+        assert_eq!(written["run"]["*"], 3);
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert!(root.join(written["file"].as_str().unwrap()).is_file());
+        let source = include_str!("admin_auth.rs");
+        assert!(source.contains("fn matches_the_shared_reference_vectors()"));
     }
 }
